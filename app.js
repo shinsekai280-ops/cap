@@ -1,21 +1,21 @@
 import { createClient } from '/vendor/supabase.js';
-import { z, dkey, pk, addDays, frDate, daysBetween, rid, rel, COL, st, defaultState, migrate, curStep, lastLog, pPct, podStreak, ctx, planPrompt, cleanPlan } from '/lib/shared.js';
+import { dkey, pk, addDays, frDate, daysBetween, rid, rel, monday, DAYS, st, defaultState, migrate, proj, theme, curStep, lastLog, pPct, planFor, tasksFor, coranStreak, weekday } from '/lib/shared.js';
 
 /* ---------- utilitaires ---------- */
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
-function dueLabel(k) { if (!k) return ''; const t = dkey(); if (k < t) return 'En retard'; if (k === t) return "Aujourd'hui"; if (k === addDays(t, 1)) return 'Demain'; return frDate(k, { weekday: 'short', day: 'numeric', month: 'short' }); }
-const md = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-const LS = { get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }, del(k) { try { localStorage.removeItem(k); } catch {} } };
+const LS = { get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+const today = () => dkey();
+function dayLabel(k) { const t = today(); if (k === t) return "Aujourd'hui"; if (k === addDays(t, 1)) return 'Demain'; if (k === addDays(t, -1)) return 'Hier'; return cap(frDate(k, { weekday: 'long', day: 'numeric', month: 'short' })); }
+function dueLabel(k) { if (!k) return ''; const t = today(); if (k < t) return 'En retard'; return dayLabel(k); }
 
 const P = {
   home: '<path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/>',
-  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
-  route: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7"/>',
-  spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" fill="currentColor" stroke="none"/>',
-  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>', back: '<path d="M15 5l-7 7 7 7"/>',
+  cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  up: '<path d="M4 17l6-6 4 4 6-7"/><path d="M14 8h6v6"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>', back: '<path d="M15 5l-7 7 7 7"/>', fwd: '<path d="M9 5l7 7-7 7"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>',
   book: '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/>',
   film: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"/>',
@@ -23,34 +23,33 @@ const P = {
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   cards: '<rect x="3" y="6" width="13" height="15" rx="2"/><path d="M7 3h11a3 3 0 0 1 3 3v11"/><path d="M7 11h5M7 15h5"/>',
   head: '<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4.5" height="6.5" rx="1.5"/><rect x="16.5" y="14" width="4.5" height="6.5" rx="1.5"/>',
-  chat: '<path d="M4 5h16v11H9l-5 4z"/>', edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  route: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>', bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.6 0l3-3a4 4 0 0 0-5.6-5.6l-1 1M14 10a4 4 0 0 0-5.6 0l-3 3a4 4 0 0 0 5.6 5.6l1-1"/>',
-  warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.4"/>', send: '<path d="M5 12h13M13 6l6 6-6 6"/>',
   ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
-  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
-  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
-  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.4"/>', coin: '<circle cx="12" cy="12" r="9"/><path d="M14.5 9.5c-.5-1-1.5-1.5-2.5-1.5-1.5 0-2.5.8-2.5 2s1 1.7 2.5 2 2.5.8 2.5 2-1 2-2.5 2c-1 0-2-.5-2.5-1.5M12 6.5V8M12 16v1.5"/>',
+  star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
 };
 const ic = (n, c = 'ico') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
 function ring(p, col, s, label, fs) { const r = (s - 10) / 2, c = 2 * Math.PI * r, o = c * (1 - Math.max(0, Math.min(1, p))); return `<svg class="ring" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" role="img" aria-label="${esc(label)}"><circle cx="${s / 2}" cy="${s / 2}" r="${r}" fill="none" stroke="var(--line)" stroke-width="7"/><circle cx="${s / 2}" cy="${s / 2}" r="${r}" fill="none" stroke="var(--${col})" stroke-width="7" stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${o.toFixed(1)}" transform="rotate(-90 ${s / 2} ${s / 2})"/><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" fill="var(--fg)" font-size="${fs || s / 4.4}" font-weight="800">${esc(label)}</text></svg>`; }
+const TCOL = { pratique: 'green', video: 'orange' };
+const chk = (on, act, attrs, col) => `<button class="chk ${on ? 'on' : ''} ${col || ''}" data-act="${act}" ${attrs} aria-label="${on ? 'Fait' : 'Marquer comme fait'}">${on ? ic('check') : ''}</button>`;
 
-/* ---------- état ---------- */
+/* ---------- état & synchro ---------- */
 let S = null, sb = null, session = null, cfg = null, saveT = null, dirty = false, lastSync = 0, saving = false;
 let V = { tab: 'today', sub: null }, SH = null; const BUSY = {};
 const uid = () => session?.user?.id;
-const lsKey = () => 'cap-state-' + (uid() || 'local');
-const day = (k = dkey()) => (S.days[k] ??= {});
-const proj = (id) => S.projects.find((p) => p.id === id);
-const parc = (id) => S.parcours.find((p) => p.id === id);
-const allTasks = () => S.projects.flatMap((p) => p.tasks.map((t) => ({ p, t })));
-const findTask = (id) => allTasks().find((x) => x.t.id === id);
-const touch = (p) => { p.lastAt = dkey(); };
+const lsKey = () => 'cap3-' + (uid() || 'local');
+const day = (k) => (S.days[k] ??= {});
+const findTask = (id) => { for (const p of S.projects) { const t = p.tasks.find((x) => x.id === id); if (t) return { p, t }; } return null; };
 
-function trim() { const t = dkey(); for (const k of Object.keys(S.days)) if (daysBetween(k, t) > 60) delete S.days[k]; S.chat = S.chat.slice(-30); S.parcours.forEach((p) => (p.logs = p.logs.slice(0, 80))); S.projects.forEach((p) => { p.notes = p.notes.slice(0, 60); p.tasks = p.tasks.filter((x) => !x.done || !x.doneAt || daysBetween(x.doneAt, t) < 45); }); }
+function trim() { const t = today(); for (const k of Object.keys(S.days)) if (daysBetween(k, t) > 90) delete S.days[k]; S.themes.forEach((x) => (x.logs = x.logs.slice(0, 200))); S.projects.forEach((p) => { p.tasks = p.tasks.filter((x) => !x.done || !x.doneAt || daysBetween(x.doneAt, t) < 60); }); }
 function save() { dirty = true; LS.set(lsKey(), S); clearTimeout(saveT); saveT = setTimeout(flush, 500); }
 async function flush() {
   clearTimeout(saveT); trim(); LS.set(lsKey(), S);
-  if (!session || !navigator.onLine || saving) { if (saving) saveT = setTimeout(flush, 800); return; }
+  if (!session || !navigator.onLine) return;
+  if (saving) { saveT = setTimeout(flush, 800); return; }
   saving = true; const ts = new Date().toISOString();
   const { error } = await sb.from('cap_state').upsert({ user_id: uid(), data: S, updated_at: ts });
   saving = false;
@@ -61,164 +60,162 @@ async function pull() {
   if (dirty) return flush();
   const { data, error } = await sb.from('cap_state').select('data,updated_at').eq('user_id', uid()).maybeSingle();
   if (error) return console.warn(error);
-  if (!data) return flush();
+  if (!data || (data.data?.v || 0) < 3) return flush();
   const ts = Date.parse(data.updated_at);
   if (ts > lastSync && !dirty) { S = migrate(data.data); lastSync = ts; LS.set(lsKey(), S); LS.set(lsKey() + '-sync', ts); render(); }
 }
 
-/* ---------- vues ---------- */
-function vLogin() {
-  return `<div class="login"><div class="logo">${ic('spark')}</div><h1>CAP</h1><span class="eyebrow">Connecte-toi avec le compte créé dans Supabase.</span>
-  <form class="sec" data-form="login" style="width:100%"><input class="inp" type="email" name="email" id="li-e" placeholder="Email" autocomplete="email" required><input class="inp" type="password" name="pw" id="li-p" placeholder="Mot de passe" autocomplete="current-password" required>
-  ${BUSY.login ? '<div class="loading"><span class="spin"></span>Connexion…</div>' : '<button class="btn">Se connecter</button>'}
-  ${V.loginErr ? `<div class="alert" style="color:var(--red);background:rgba(255,107,107,.12)">${esc(V.loginErr)}</div>` : ''}</form></div>`;
+/* ---------- vue : journée (aujourd'hui ou un autre jour) ---------- */
+function routineRow(r, k) { const on = (S.days[k]?.routines || []).includes(r.id); return `<div class="row ${on ? 'done' : ''}">${chk(on, 'routine', `data-id="${r.id}" data-k="${k}"`)}<div class="txt"><span class="t">${esc(r.title)}</span></div>${r.time ? `<span class="time">${r.time}</span>` : ''}</div>`; }
+function taskRow(x, k) { const late = !x.done && x.due && x.due < today(); return `<div class="row ${x.done ? 'done' : ''}">${chk(x.done, 'task', `data-id="${x.id}" data-k="${k}"`)}<div class="txt"><span class="t">${esc(x.title)}</span>${late ? `<span class="s" style="color:var(--red)">En retard · prévu ${esc(dayLabel(x.due).toLowerCase())}</span>` : !x.due && !x.done ? '<span class="s">Sans date · reste jusqu’à ce que tu la fasses</span>' : ''}</div>${x.time && !x.done ? `<span class="time">${ic('bell', 'ico-xs')}${x.time}</span>` : ''}</div>`; }
+function projBlock(p, k) {
+  const t = today(); const rs = S.routines.filter((r) => r.projectId === p.id); const ts = tasksFor(p, k, t).sort((a, b) => a.done - b.done || (a.time || '99').localeCompare(b.time || '99'));
+  const items = [...rs.map((r) => ({ time: r.time || '99', html: routineRow(r, k), done: (S.days[k]?.routines || []).includes(r.id) })), ...ts.map((x) => ({ time: x.time || '99', html: taskRow(x, k), done: x.done }))].sort((a, b) => a.time.localeCompare(b.time));
+  const dn = items.filter((i) => i.done).length;
+  return `<div class="proj" style="--c:var(--${p.color});--cs:var(--${p.color}-soft)">
+  <button class="proj-h" data-act="open" data-t="project" data-id="${p.id}"><span class="dotc"></span><div class="txt"><span class="pn">${esc(p.name)}</span><span class="s">${esc(p.sub)}</span></div><span class="count">${dn} / ${items.length}</span>${ic('fwd', 'ico-s')}</button>
+  ${items.length ? `<div class="plist">${items.map((i) => i.html).join('')}</div>` : ''}
+  <form class="addf qadd" data-form="quickTask" data-id="${p.id}" data-k="${k}"><input class="inp" name="t" id="qa-${p.id}" placeholder="+ Ajouter une tâche" autocomplete="off" enterkeyhint="done"><input class="inp tm" type="time" name="h" id="qh-${p.id}" aria-label="Heure du rappel (optionnel)"><button class="iconbtn" aria-label="Ajouter">${ic('plus')}</button></form>
+ </div>`;
 }
-
-function vToday() {
-  const t = dkey(), D = S.days[t] || {}, h = new Date().getHours();
-  const prios = D.plan?.priorities || []; const pTask = new Set(prios.map((p) => p.taskId).filter(Boolean));
-  const due = allTasks().filter(({ t: x }) => !pTask.has(x.id) && ((!x.done && x.due && x.due <= t) || x.doneAt === t)).sort((a, b) => a.t.done - b.t.done || (a.t.due || '').localeCompare(b.t.due || '') || (a.t.time || '99').localeCompare(b.t.time || '99'));
-  const rdone = D.routines || []; const carry = D.carry || [];
-  const podToday = S.podcasts.find((x) => x.date === t);
-  let banner;
-  if (BUSY.plan) banner = `<div class="loading"><span class="spin"></span>Le coach regarde tes projets…</div>`;
-  else if (D.plan && D.plan.message) banner = `<div class="coach-msg">${esc(D.plan.message)}</div><button class="link" style="align-self:flex-start" data-act="plan">Refaire mon plan</button>`;
-  else banner = `<div class="coach-msg">${carry.length ? 'Reporté d’hier : ' + esc(carry.join(', ')) : 'Pas encore de plan pour aujourd’hui.'}</div><button class="btn sm" style="align-self:flex-start" data-act="plan">${ic('spark', 'ico-s')} Faire mon plan du jour</button>`;
-  return `
- <div class="head"><div class="head-l"><span class="eyebrow">${esc(cap(frDate(t)))}</span><h1>${h < 5 || h >= 18 ? 'Bonsoir' : 'Bonjour'} 👋</h1></div><button class="iconbtn" data-act="open" data-t="settings" aria-label="Réglages">${ic('gear')}</button></div>
+function evolveCard(kind, th, k) {
+  if (!th) return `<div class="card empty">Rien de prévu. <button class="link" data-act="open" data-t="week">Modifier la semaine type</button></div>`;
+  const D = S.days[k] || {}; const on = !!D.evolve?.[kind]; const c = TCOL[kind]; const time = S.settings[kind];
+  const i = th.kind === 'steps' ? curStep(th) : -1;
+  const sub = th.kind === 'counter' ? `${th.count} / ${th.total} ${esc(th.unit)}` : th.kind === 'steps' ? (i >= 0 ? 'Étape : ' + esc(th.steps[i].t) : 'Parcours terminé ✓') : (D.evolve?.entry ? '' : 'Note ce que tu as regardé et retenu');
+  return `<div class="evo ${on ? 'done' : ''}" style="--c:var(--${c});--cs:var(--${c}-soft)">
+  <button class="evo-main" data-act="open" data-t="theme" data-id="${th.id}"><span class="badge">${ic(th.icon || 'route')}</span><div class="txt"><span class="k">${kind === 'pratique' ? 'Pratique' : 'Vidéo'} · ${time}</span><span class="pn">${esc(th.name)}</span><span class="s">${sub}</span></div></button>
+  ${chk(on, 'evolve', `data-kind="${kind}" data-id="${th.id}" data-k="${k}"`, 'g')}
+ </div>`;
+}
+function vDay(k) {
+  const t = today(); const isToday = k === t; const D = S.days[k] || {}; const plan = planFor(S, k); const h = new Date().getHours(); const sk = coranStreak(S);
+  const head = isToday
+    ? `<div class="head"><div class="head-l"><span class="eyebrow">${esc(cap(frDate(k)))}</span><h1>${h < 5 || h >= 18 ? 'Bonsoir' : 'Bonjour'} 👋</h1></div>${sk ? `<span class="streak">🔥 ${sk} jour${sk > 1 ? 's' : ''}</span>` : ''}</div>`
+    : `<button class="back" data-act="back">${ic('back')} Semaine</button><div class="head"><div class="head-l"><span class="eyebrow">${k < t ? 'Jour passé' : 'Jour à venir'}</span><h1>${esc(cap(frDate(k)))}</h1></div></div>`;
+  return `${head}
  ${!navigator.onLine ? `<div class="alert">${ic('warn', 'ico-s')} Hors ligne : tes changements seront envoyés au retour du réseau.</div>` : ''}
- <div class="card coach">${ic('spark', 'ico spark')}<div class="coach-body">${banner}</div></div>
- <div class="sec"><div class="sec-h"><h2>3 priorités</h2><span class="count">${prios.filter((p) => p.done).length} / ${prios.length}</span></div>
-  ${prios.map((p, i) => { const c = COL[p.cat] || 'amber'; const nm = p.projectId ? proj(p.projectId)?.name : p.parcoursId ? parc(p.parcoursId)?.name : ''; return `<div class="prio ${p.done ? 'done' : ''}" style="--c:var(--${c})"><span class="num">${i + 1}</span><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px"><span class="t" style="${p.done ? 'color:var(--dim);text-decoration:line-through' : ''}">${esc(p.text)}</span>${nm ? `<span><span class="pill p-${c}">${esc(nm)}</span></span>` : ''}</div><button class="chk ${p.done ? 'on' : ''}" data-act="prio" data-id="${p.id}" aria-label="Fait">${p.done ? ic('check') : ''}</button></div>`; }).join('')}
-  ${prios.length < 3 ? `<form class="addf" data-form="addPrio"><input class="inp" id="prio-in" name="t" placeholder="Ajouter une priorité" autocomplete="off"><button class="iconbtn" aria-label="Ajouter">${ic('plus')}</button></form>` : ''}
- </div>
- ${S.routines.length ? `<div class="sec"><div class="sec-h"><h2>Routine du jour</h2><span class="count">${rdone.length} / ${S.routines.length}</span></div><div class="list">${S.routines.map((r) => { const on = rdone.includes(r.id); return `<div class="row ${on ? 'done' : ''}"><button class="chk ${on ? 'on' : ''}" data-act="routine" data-id="${r.id}" aria-label="Fait">${on ? ic('check') : ''}</button><div class="txt"><span class="t">${esc(r.title)}</span></div><span class="pill p-blue">${esc(proj(r.projectId)?.name || '')}</span></div>`; }).join('')}</div></div>` : ''}
- <div class="sec"><div class="sec-h"><h2>À faire aujourd’hui</h2><span class="count">${due.filter((x) => x.t.done).length} / ${due.length}</span></div>
-  ${due.length ? `<div class="list">${due.map(({ p, t: x }) => taskRow(x, p.name)).join('')}</div>` : `<div class="card empty">Aucune tâche datée pour aujourd’hui. Touche le micro pour en ajouter.</div>`}</div>
- <div class="sec"><div class="sec-h"><h2>Parcours</h2><button class="link" data-act="tab" data-v="parcours">Tout voir</button></div>
-  <div class="grid2">${S.parcours.map((p) => { const c = COL[p.cat]; const today = lastLog(p) === t; return `<button class="mini" data-act="open" data-t="parcours" data-id="${p.id}"><span class="n">${esc(p.name)}</span><div class="bar" style="--c:var(--${c})"><i style="width:${Math.round(pPct(p) * 100)}%"></i></div><span class="s">${today ? '✓ Point fait aujourd’hui' : 'Dernier point : ' + rel(lastLog(p))}</span></button>`; }).join('')}
-  <button class="mini" data-act="open" data-t="podcasts"><span class="n">Podcast du jour</span><div class="bar" style="--c:var(--orange)"><i style="width:${podToday ? 100 : 0}%"></i></div><span class="s">${podToday ? '✓ ' + esc(podToday.title) : 'Pas encore écouté'}</span></button></div></div>
- <button class="card coach" style="text-align:left;width:100%;${h >= 18 ? '' : 'border-color:var(--line);background:var(--card)'}" data-act="open" data-t="bilan">${ic('moon', 'ico spark')}<div class="coach-body"><span class="coach-msg">Bilan du soir</span><span class="coach-sub">${D.bilan ? 'Journée validée ✓' : 'Fais le point sur ta journée en 1 minute.'}</span></div></button>`;
-}
-function taskMeta(x) { if (x.done || !x.due) return ''; const late = x.due < dkey(); return `<span style="${late ? 'color:var(--red)' : ''}">${dueLabel(x.due)}${x.time ? ' · ' + x.time : ''}</span>`; }
-function taskRow(x, pname) { return `<div class="row ${x.done ? 'done' : ''}"><button class="chk ${x.done ? 'on' : ''}" data-act="task" data-id="${x.id}" aria-label="Fait">${x.done ? ic('check') : ''}</button><div class="txt"><span class="t">${esc(x.title)}</span><span class="s">${pname ? esc(pname) + (x.due && !x.done ? ' · ' : '') : ''}${taskMeta(x)}</span></div>${x.time && !x.done ? `<span style="color:var(--amber)">${ic('bell', 'ico-s')}</span>` : ''}</div>`; }
-
-function projStats(p) { const tot = p.tasks.length, dn = p.tasks.filter((t) => t.done).length; const open = p.tasks.filter((t) => !t.done).sort((a, b) => (a.due || '9').localeCompare(b.due || '9')); return { tot, dn, open, next: open[0] }; }
-function vProjects() {
-  return `<div class="head"><div class="head-l"><h1>Projets</h1><span class="eyebrow">${S.projects.length} projets</span></div><button class="iconbtn" data-act="newProject" aria-label="Nouveau projet">${ic('plus')}</button></div>
- ${S.projects.map((p) => { const s = projStats(p); const stale = p.lastAt && daysBetween(p.lastAt, dkey()) >= 3 && s.open.length; const pct = s.tot ? Math.round((s.dn / s.tot) * 100) : 0; const nd = s.open.find((t) => t.due); return `<button class="pc" style="--c:var(--blue);--cs:var(--blue-soft)" data-act="open" data-t="project" data-id="${p.id}">
-  <div class="pc-top"><span class="badge">${ic('folder')}</span><div style="flex:1;min-width:0"><div class="pc-name">${esc(p.name)}</div><div class="pc-sub">${esc(p.sub)}</div></div><span class="pct">${pct} %</span></div>
-  <div class="bar" style="--c:var(--blue)"><i style="width:${pct}%"></i></div>
-  ${s.next ? `<div class="pc-next"><span class="pc-sub">Prochaine action</span><br><b>${esc(s.next.title)}</b></div>` : `<div class="pc-sub">Aucune tâche ouverte</div>`}
-  <div class="pc-meta"><span>${s.open.length} tâche${s.open.length > 1 ? 's' : ''}</span>${nd ? `<span>Échéance : ${dueLabel(nd.due)}</span>` : ''}</div>
-  ${stale ? `<div class="alert">${ic('warn', 'ico-s')} Aucune avancée depuis ${daysBetween(p.lastAt, dkey())} jours</div>` : ''}</button>`; }).join('')}`;
+ <button class="gold ${D.coran ? 'on' : ''}" data-act="coran" data-k="${k}"><span class="gold-ic">${D.coran ? ic('check') : ic('book')}</span><div class="txt"><span class="k">Règle d’or</span><span class="pn">1 page de Coran</span><span class="s">${D.coran ? 'Validée ✓' : 'Touche pour valider'}</span></div></button>
+ <div class="sec"><div class="sec-h"><h2 class="sh">${ic('coin', 'ico-s')} Ce qui rapporte</h2></div>${S.projects.map((p) => projBlock(p, k)).join('')}</div>
+ <div class="sec"><div class="sec-h"><h2 class="sh">${ic('up', 'ico-s')} Ce qui me fait évoluer</h2><button class="link" data-act="open" data-t="week">Semaine type</button></div>${evolveCard('pratique', plan.pratique, k)}${evolveCard('video', plan.video, k)}</div>
+ ${isToday ? `<button class="card coach" style="text-align:left;width:100%;${h >= 18 ? '' : 'border-color:var(--line);background:var(--card)'}" data-act="open" data-t="bilan">${ic('moon', 'ico spark')}<div class="coach-body"><span class="coach-msg">Bilan du soir</span><span class="coach-sub">${D.bilan ? 'Journée validée ✓' : 'Fais le point sur ta journée en 1 minute.'}</span></div></button>` : ''}`;
 }
 
+/* ---------- vue : semaine (calendrier) ---------- */
+function dayScore(k) {
+  const D = S.days[k] || {}; const plan = planFor(S, k); const t = today();
+  let tot = 1 + S.routines.length, dn = (D.coran ? 1 : 0) + (D.routines || []).length;
+  S.projects.forEach((p) => { const ts = tasksFor(p, k, t); tot += ts.length; dn += ts.filter((x) => x.done).length; });
+  ['pratique', 'video'].forEach((x) => { if (plan[x]) { tot++; if (D.evolve?.[x]) dn++; } });
+  return { tot, dn };
+}
+function vWeek() {
+  const t = today(); const start = addDays(monday(t), (V.weekOff || 0) * 7);
+  const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  const label = `${frDate(days[0], { day: 'numeric', month: 'short' })} – ${frDate(days[6], { day: 'numeric', month: 'short' })}`;
+  return `<div class="head"><div class="head-l"><h1>Semaine</h1><span class="eyebrow">${esc(label)}</span></div><div class="wnav"><button class="iconbtn" data-act="wk" data-n="-1" aria-label="Semaine précédente">${ic('back')}</button><button class="iconbtn" data-act="wk" data-n="1" aria-label="Semaine suivante">${ic('fwd')}</button></div></div>
+ ${V.weekOff ? `<button class="link" data-act="wk" data-n="0" style="align-self:flex-start">Revenir à cette semaine</button>` : ''}
+ <div class="week">${days.map((k) => {
+    const plan = planFor(S, k); const D = S.days[k] || {}; const past = k < t; const isT = k === t; const sc = dayScore(k);
+    const dated = S.projects.flatMap((p) => p.tasks.filter((x) => x.due === k).map((x) => ({ p, x })));
+    return `<button class="wday ${isT ? 'today' : ''} ${past ? 'past' : ''}" data-act="openDay" data-k="${k}">
+    <div class="wd"><span class="wdn">${DAYS[weekday(k)].slice(0, 3)}</span><span class="wdd">${pk(k).getDate()}</span></div>
+    <div class="wbody"><div class="wtags">${plan.pratique ? `<span class="pill p-green">${esc(plan.pratique.name)}</span>` : ''}${plan.video ? `<span class="pill p-orange">${esc(plan.video.name)}</span>` : ''}</div>
+     ${dated.length ? `<span class="s">${dated.slice(0, 2).map(({ x }) => esc(x.title)).join(' · ')}${dated.length > 2 ? ` · +${dated.length - 2}` : ''}</span>` : ''}</div>
+    <div class="wst">${past || isT ? `<span class="wsc">${sc.dn}/${sc.tot}</span><span class="wcor ${D.coran ? 'on' : ''}">${D.coran ? ic('check', 'ico-xs') : ''}</span>` : ''}</div></button>`;
+  }).join('')}</div>
+ <button class="btn ghost" data-act="open" data-t="week">${ic('edit', 'ico-s')} Modifier la semaine type</button>`;
+}
+function vWeekType() {
+  const pr = S.themes.filter((x) => x.type === 'pratique'), vi = S.themes.filter((x) => x.type === 'video');
+  const sel = (d, kind, list) => `<select class="inp" id="wk-${d}-${kind}" data-week="${d}" data-kind="${kind}"><option value="">—</option>${list.map((x) => `<option value="${x.id}" ${S.week[d]?.[kind] === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`;
+  return `<button class="back" data-act="back">${ic('back')} Retour</button>
+ <div class="head"><div class="head-l"><h1>Semaine type</h1><span class="eyebrow">1 pratique à ${S.settings.pratique} et 1 vidéo à ${S.settings.video}, chaque jour.</span></div></div>
+ <div class="list">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<div class="row wrow"><span class="t wdl">${DAYS[d]}</span><div class="wsel">${sel(d, 'pratique', pr)}${sel(d, 'video', vi)}</div></div>`).join('')}</div>
+ <span class="hint">Les changements s’appliquent tout de suite à tous les jours.</span>`;
+}
+
+/* ---------- vue : projet ---------- */
 function vProject({ id, tab = 'todo', confirm }) {
-  const p = proj(id); if (!p) return goBack(); const s = projStats(p); const rs = S.routines.filter((r) => r.projectId === id);
-  const list = tab === 'todo' ? s.open : p.tasks.filter((t) => t.done);
-  return `<button class="back" data-act="back">${ic('back')} Projets</button>
- <div class="head"><div class="head-l"><h1>${esc(p.name)}</h1><span class="eyebrow">${esc(p.sub)}</span></div><button class="iconbtn" data-act="editProject" data-id="${id}" aria-label="Modifier">${ic('edit')}</button></div>
- ${p.goal ? `<div class="card goal"><span class="goal-l">Objectif</span><span class="goal-t">${esc(p.goal)}</span><div class="bar" style="--c:var(--blue)"><i style="width:${s.tot ? Math.round((s.dn / s.tot) * 100) : 0}%"></i></div><span class="pc-sub">${s.dn} / ${s.tot} tâches faites</span></div>` : ''}
- <div class="card sec"><div class="sec-h"><h2 style="display:flex;gap:8px;align-items:center"><span style="color:var(--amber)">${ic('spark', 'ico-s')}</span>Mémoire du projet</h2></div>
-  ${p.memory.length ? p.memory.map((m, i) => `<div class="bul"><span>${esc(m)}</span><button class="x" data-act="memDel" data-id="${id}" data-i="${i}" aria-label="Retirer">${ic('x', 'ico-s')}</button></div>`).join('') : `<span class="pc-sub">Infos clés du projet (cible, offre, ce qui bloque…). Le coach s’en sert pour te conseiller.</span>`}
-  <form class="addf" data-form="addMem" data-id="${id}"><input class="inp" name="t" id="mem-in" placeholder="Ajouter une info clé" autocomplete="off"><button class="iconbtn" aria-label="Ajouter">${ic('plus')}</button></form></div>
- ${rs.length || id === 'dycom' ? `<div class="sec"><h2>Routine quotidienne</h2><div class="list">${rs.map((r) => `<div class="row"><div class="txt"><span class="t">${esc(r.title)}</span></div><button class="x" data-act="routineDel" data-id="${r.id}" aria-label="Retirer">${ic('x', 'ico-s')}</button></div>`).join('')}<form class="row addf" data-form="addRoutine" data-id="${id}"><input class="inp" name="t" id="rout-in" placeholder="Ajouter une tâche quotidienne" autocomplete="off"><button class="iconbtn" aria-label="Ajouter">${ic('plus')}</button></form></div></div>` : ''}
- <div class="sec"><div class="sec-h"><h2>Tâches</h2><div class="tabs"><button class="${tab === 'todo' ? 'on' : ''}" data-act="ptab" data-v="todo">À faire ${s.open.length}</button><button class="${tab === 'done' ? 'on' : ''}" data-act="ptab" data-v="done">Fait ${s.dn}</button></div></div>
-  <form class="card sec" data-form="addTask" data-id="${id}" style="gap:8px"><input class="inp" name="t" id="task-in" placeholder="Nouvelle tâche" autocomplete="off"><div class="addf"><input class="inp" type="date" name="d" id="task-d" aria-label="Date"><input class="inp" type="time" name="h" id="task-h" aria-label="Heure du rappel"><button class="btn sm" style="flex:1">Ajouter</button></div><span class="hint">${ic('bell', 'ico-s')} Mets une date et une heure pour recevoir un rappel.</span></form>
-  ${list.length ? `<div class="list">${list.map((x) => `<div class="row ${x.done ? 'done' : ''}"><button class="chk ${x.done ? 'on' : ''}" data-act="task" data-id="${x.id}" aria-label="Fait">${x.done ? ic('check') : ''}</button><div class="txt"><span class="t">${esc(x.title)}</span>${x.due && !x.done ? `<span class="s">${taskMeta(x)}</span>` : ''}</div><button class="x" data-act="taskDel" data-id="${x.id}" aria-label="Supprimer">${ic('x', 'ico-s')}</button></div>`).join('')}</div>` : `<div class="empty">${tab === 'todo' ? 'Rien à faire ici pour l’instant.' : 'Aucune tâche terminée.'}</div>`}</div>
- <div class="sec"><h2>Notes</h2><form class="addf" data-form="addNote" data-id="${id}"><input class="inp" name="t" id="note-in" placeholder="Ajouter une note" autocomplete="off"><button class="iconbtn" aria-label="Ajouter">${ic('plus')}</button></form>
-  ${p.notes.length ? `<div class="card">${p.notes.map((n, i) => `<div class="log"><div style="display:flex;justify-content:space-between;gap:8px"><span class="d">${esc(cap(rel(n.date)))}</span><button class="x" style="width:22px;height:22px" data-act="noteDel" data-id="${id}" data-i="${i}" aria-label="Supprimer">${ic('x', 'ico-s')}</button></div><span class="x2">${esc(n.text)}</span></div>`).join('')}</div>` : ''}</div>
+  const p = proj(S, id); if (!p) return goBack(); const rs = S.routines.filter((r) => r.projectId === id);
+  const open = p.tasks.filter((x) => !x.done).sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || (a.time || '99').localeCompare(b.time || '99'));
+  const done = p.tasks.filter((x) => x.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
+  const list = tab === 'todo' ? open : done;
+  return `<button class="back" data-act="back">${ic('back')} Retour</button>
+ <div class="head" style="--c:var(--${p.color})"><div class="head-l"><h1>${esc(p.name)}</h1><span class="eyebrow">${esc(p.sub)}</span></div><button class="iconbtn" data-act="editProject" data-id="${id}" aria-label="Modifier">${ic('edit')}</button></div>
+ <div class="sec"><h2>Tous les jours</h2><div class="list">${rs.map((r) => `<div class="row"><div class="txt"><span class="t">${esc(r.title)}</span></div>${r.time ? `<span class="time">${r.time}</span>` : ''}<button class="x" data-act="routineEdit" data-id="${r.id}" aria-label="Modifier">${ic('edit', 'ico-s')}</button></div>`).join('') || '<div class="row"><span class="s">Aucune tâche quotidienne.</span></div>'}
+  <form class="row addf" data-form="addRoutine" data-id="${id}"><input class="inp" name="t" id="rout-in" placeholder="Ajouter une tâche quotidienne" autocomplete="off"><input class="inp tm" type="time" name="h" id="rout-h" aria-label="Heure"><button class="iconbtn" aria-label="Ajouter">${ic('plus')}</button></form></div></div>
+ <div class="sec"><div class="sec-h"><h2>Tâches</h2><div class="tabs"><button class="${tab === 'todo' ? 'on' : ''}" data-act="ptab" data-v="todo">À faire ${open.length}</button><button class="${tab === 'done' ? 'on' : ''}" data-act="ptab" data-v="done">Fait ${done.length}</button></div></div>
+  <form class="card sec" data-form="addTask" data-id="${id}" style="gap:8px"><input class="inp" name="t" id="task-in" placeholder="Nouvelle tâche" autocomplete="off"><div class="addf"><input class="inp" type="date" name="d" id="task-d" aria-label="Date"><input class="inp tm" type="time" name="h" id="task-h" aria-label="Heure du rappel"><button class="btn sm" style="flex:1">Ajouter</button></div><span class="hint">Sans date : la tâche reste chaque jour jusqu’à ce que tu la fasses. Avec une heure : tu reçois un rappel.</span></form>
+  ${list.length ? `<div class="list">${list.map((x) => `<div class="row ${x.done ? 'done' : ''}">${chk(x.done, 'task', `data-id="${x.id}" data-k="${today()}"`)}<div class="txt"><span class="t">${esc(x.title)}</span><span class="s">${x.done ? 'Fait ' + rel(x.doneAt) : x.due ? `<span style="${x.due < today() ? 'color:var(--red)' : ''}">${esc(dueLabel(x.due))}${x.time ? ' · ' + x.time : ''}</span>` : 'Sans date'}</span></div><button class="x" data-act="taskDel" data-id="${x.id}" aria-label="Supprimer">${ic('x', 'ico-s')}</button></div>`).join('')}</div>` : `<div class="empty">${tab === 'todo' ? 'Rien à faire ici pour l’instant.' : 'Aucune tâche terminée.'}</div>`}</div>
  ${confirm ? `<div class="card confirm"><span>Supprimer « ${esc(p.name)} » et toutes ses tâches ?</span><div class="btn-row"><button class="btn ghost sm" data-act="unconfirm">Annuler</button><button class="btn red sm" data-act="projDel" data-id="${id}">Supprimer</button></div></div>` : `<button class="danger" data-act="confirm">Supprimer le projet</button>`}`;
 }
 
-function vParcoursList() {
-  const t = dkey(); const wk = S.podcasts.filter((x) => daysBetween(x.date, t) < 7).length;
-  return `<div class="head"><div class="head-l"><h1>Parcours</h1><span class="eyebrow">Tu apprends sur YouTube, Google… ici tu suis où tu en es.</span></div><button class="iconbtn" data-act="newParcours" aria-label="Nouveau parcours">${ic('plus')}</button></div>
- ${S.parcours.map((p) => { const c = COL[p.cat]; const i = curStep(p); const pct = Math.round(pPct(p) * 100); return `<button class="pc" style="--c:var(--${c});--cs:var(--${c}-soft)" data-act="open" data-t="parcours" data-id="${p.id}">
-  <div class="pc-top"><span class="badge">${ic(p.icon || 'route')}</span><div style="flex:1;min-width:0"><div class="pc-name">${esc(p.name)}</div><div class="pc-sub">${p.kind === 'counter' ? `${p.count} / ${p.total} ${esc(p.unit)}` : i < 0 ? (p.steps.length ? 'Parcours terminé ✓' : 'Guide à créer') : esc(p.steps[i].t)}</div></div><span class="pct">${pct} %</span></div>
-  <div class="bar" style="--c:var(--${c})"><i style="width:${pct}%"></i></div>
-  <div class="pc-meta"><span>Dernier point : ${rel(lastLog(p))}</span>${p.kind !== 'counter' && p.steps.length ? `<span>${p.steps.filter((s) => s.done).length} / ${p.steps.length} étapes</span>` : ''}</div></button>`; }).join('')}
- <button class="pc" style="--c:var(--orange);--cs:var(--orange-soft)" data-act="open" data-t="podcasts"><div class="pc-top"><span class="badge">${ic('head')}</span><div style="flex:1;min-width:0"><div class="pc-name">Podcasts</div><div class="pc-sub">Objectif : 1 par jour</div></div><span class="pct">${wk} / 7</span></div><div class="bar" style="--c:var(--orange)"><i style="width:${Math.min(100, (wk / 7) * 100)}%"></i></div><div class="pc-meta"><span>Cette semaine</span><span>${S.podcasts.length} écoutés au total</span></div></button>`;
+/* ---------- vue : évoluer ---------- */
+function themeCard(x) {
+  const c = TCOL[x.type]; const pct = Math.round(pPct(x) * 100); const i = x.kind === 'steps' ? curStep(x) : -1;
+  const sub = x.kind === 'counter' ? `${x.count} / ${x.total} ${esc(x.unit)}` : x.kind === 'steps' ? (i >= 0 ? esc(x.steps[i].t) : x.steps.length ? 'Parcours terminé ✓' : 'Ajoute tes étapes') : `${x.logs.length} vidéo${x.logs.length > 1 ? 's' : ''} notée${x.logs.length > 1 ? 's' : ''}`;
+  const days = [1, 2, 3, 4, 5, 6, 0].filter((d) => S.week[d]?.[x.type] === x.id).map((d) => DAYS[d].slice(0, 3)).join(' · ');
+  return `<button class="pc" style="--c:var(--${c});--cs:var(--${c}-soft)" data-act="open" data-t="theme" data-id="${x.id}">
+  <div class="pc-top"><span class="badge">${ic(x.icon || 'route')}</span><div style="flex:1;min-width:0"><div class="pc-name">${esc(x.name)}</div><div class="pc-sub">${sub}</div></div>${x.kind !== 'journal' ? `<span class="pct">${pct} %</span>` : ''}</div>
+  ${x.kind !== 'journal' ? `<div class="bar" style="--c:var(--${c})"><i style="width:${pct}%"></i></div>` : ''}
+  <div class="pc-meta"><span>${days || 'Pas dans la semaine type'}</span><span>Dernière fois : ${rel(lastLog(x))}</span></div></button>`;
 }
-
-function vParcours({ id, edit, confirm }) {
-  const p = parc(id); if (!p) return goBack(); const c = COL[p.cat], cs = c + '-soft'; const i = curStep(p); const pct = pPct(p);
-  const gen = (label) => `<button class="btn ${p.steps.length ? 'ghost' : ''}" data-act="genGuide" ${BUSY.guide ? 'disabled' : ''}>${BUSY.guide ? '<span class="spin"></span> Le coach prépare le guide…' : ic('spark', 'ico-s') + ' ' + label}</button>`;
-  const stepsHtml = edit ? `<div class="sec">${p.steps.map((s, k) => `<div class="addf"><input class="inp" id="step-${k}" data-step="${k}" value="${esc(s.t)}"><button class="x" data-act="stepDel" data-i="${k}" aria-label="Retirer">${ic('x', 'ico-s')}</button></div>`).join('')}
-   <form class="addf" data-form="addStep"><input class="inp" name="t" id="step-new" placeholder="Nouvelle étape" autocomplete="off"><button class="iconbtn" aria-label="Ajouter">${ic('plus')}</button></form>
-   ${gen('Regénérer le guide avec l’IA')}<button class="btn" data-act="editDone">Enregistrer le guide</button></div>`
-    : p.steps.length ? `<div class="steps" style="--c:var(--${c});--cs:var(--${cs})">${p.steps.map((s, k) => `<button class="step ${s.done ? 'ok' : ''} ${k === i ? 'cur' : ''}" data-act="stepToggle" data-i="${k}"><span class="dot">${s.done ? ic('check') : ''}</span><span class="st">${esc(s.t)}</span></button>`).join('')}</div>`
-      : `<div class="sec"><span class="pc-sub">Pas encore de guide pour ce parcours.</span>${gen('Créer le guide avec l’IA')}<button class="btn ghost" data-act="editSteps">Écrire les étapes moi-même</button></div>`;
-  return `<button class="back" data-act="back">${ic('back')} Parcours</button>
- <div class="head"><div class="head-l"><h1>${esc(p.name)}</h1></div><button class="iconbtn" data-act="editParcours" data-id="${id}" aria-label="Modifier">${ic('edit')}</button></div>
- <div class="card ringwrap">${ring(pct, c, 92, Math.round(pct * 100) + ' %')}<div style="display:flex;flex-direction:column;gap:4px;min-width:0"><span class="goal-l">Objectif</span><span style="font-weight:600">${esc(p.goal || '—')}</span><span class="pc-sub">${p.kind === 'counter' ? `${p.count} / ${p.total} ${esc(p.unit)}` : `${p.steps.filter((s) => s.done).length} / ${p.steps.length} étapes`}</span></div></div>
- ${p.kind === 'counter' ? `<div class="card counter"><span class="goal-l">Où tu en es</span><span class="big">${p.count} <small>/ ${p.total} ${esc(p.unit)}</small></span><div class="cbtns"><button data-act="cnt" data-n="-1">−1</button><button data-act="cnt" data-n="1">+1</button><button data-act="cnt" data-n="5">+5</button><button data-act="cnt" data-n="10">+10</button></div><form class="addf" data-form="setCount"><input class="inp" type="number" inputmode="numeric" min="0" max="${p.total}" name="n" id="cnt-in" placeholder="J’en suis à…"><button class="btn sm">OK</button></form></div>` : ''}
- ${p.kind !== 'counter' && i >= 0 && !edit ? `<div class="card cur-card" style="border-color:var(--${c})"><span style="color:var(--${c})">${ic('spark')}</span><div style="flex:1;min-width:0"><div class="goal-l">Étape actuelle</div><div style="font-weight:700">${esc(p.steps[i].t)}</div></div></div>` : ''}
- <button class="btn" data-act="point" data-id="${id}">${ic('mic', 'ico-s')} Faire mon point</button>
- ${p.kind !== 'counter' ? `<div class="sec"><div class="sec-h"><h2>Guide étape par étape</h2>${p.steps.length && !edit ? `<button class="link" data-act="editSteps">Modifier</button>` : ''}</div>${stepsHtml}</div>` : ''}
- <div class="sec"><h2>Historique</h2>${p.logs.length ? `<div class="card">${p.logs.slice(0, 30).map((l) => `<div class="log"><span class="d">${esc(cap(rel(l.date)))}${l.step ? ' · ' + esc(l.step) : ''}</span><span class="x2">${esc(l.summary)}</span></div>`).join('')}</div>` : `<div class="card empty">Après chaque session, touche « Faire mon point » et dis ce que tu as fait.</div>`}</div>
- <div class="sec"><h2>Mes ressources</h2>${p.links.map((l, k) => `<div class="urlbox">${ic('link', 'ico-s')}<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.title || l.url)}</a><button class="x" style="width:24px;height:24px" data-act="linkDel" data-i="${k}" aria-label="Retirer">${ic('x', 'ico-s')}</button></div>`).join('')}
+function vEvolve() {
+  return `<div class="head"><div class="head-l"><h1>Évoluer</h1><span class="eyebrow">Tu apprends sur YouTube, Google… ici tu suis où tu en es.</span></div><button class="iconbtn" data-act="newTheme" aria-label="Nouveau thème">${ic('plus')}</button></div>
+ <div class="sec"><h2>Pratique <span class="count">· ${S.settings.pratique}</span></h2>${S.themes.filter((x) => x.type === 'pratique').map(themeCard).join('')}</div>
+ <div class="sec"><h2>Vidéo <span class="count">· ${S.settings.video}</span></h2>${S.themes.filter((x) => x.type === 'video').map(themeCard).join('')}</div>`;
+}
+function vTheme({ id, edit, confirm }) {
+  const x = theme(S, id); if (!x) return goBack(); const c = TCOL[x.type], cs = c + '-soft'; const i = x.kind === 'steps' ? curStep(x) : -1; const pct = pPct(x);
+  const top = x.kind === 'journal'
+    ? `<div class="card goal"><span class="goal-l">Objectif</span><span style="font-weight:600">${esc(x.goal || '—')}</span><span class="pc-sub">${x.logs.length} vidéo${x.logs.length > 1 ? 's' : ''} notée${x.logs.length > 1 ? 's' : ''}</span></div>`
+    : `<div class="card ringwrap">${ring(pct, c, 92, Math.round(pct * 100) + ' %')}<div style="display:flex;flex-direction:column;gap:4px;min-width:0"><span class="goal-l">Objectif</span><span style="font-weight:600">${esc(x.goal || '—')}</span><span class="pc-sub">${x.kind === 'counter' ? `${x.count} / ${x.total} ${esc(x.unit)}` : `${x.steps.filter((s) => s.done).length} / ${x.steps.length} étapes`}</span></div></div>`;
+  const counter = x.kind === 'counter' ? `<div class="card counter"><span class="goal-l">Où tu en es</span><span class="big">${x.count} <small>/ ${x.total} ${esc(x.unit)}</small></span><div class="cbtns"><button data-act="cnt" data-n="-1">−1</button><button data-act="cnt" data-n="1">+1</button><button data-act="cnt" data-n="5">+5</button><button data-act="cnt" data-n="10">+10</button></div><form class="addf" data-form="setCount"><input class="inp" type="number" inputmode="numeric" min="0" max="${x.total}" name="n" id="cnt-in" placeholder="J’en suis à…"><button class="btn sm">OK</button></form></div>` : '';
+  const steps = x.kind !== 'steps' ? '' : edit
+    ? `<div class="sec">${x.steps.map((s, k) => `<div class="addf"><input class="inp" id="step-${k}" data-step="${k}" value="${esc(s.t)}"><button class="x" data-act="stepDel" data-i="${k}" aria-label="Retirer">${ic('x', 'ico-s')}</button></div>`).join('')}<form class="addf" data-form="addStep"><input class="inp" name="t" id="step-new" placeholder="Nouvelle étape" autocomplete="off"><button class="iconbtn" aria-label="Ajouter">${ic('plus')}</button></form><button class="btn" data-act="editDone">Enregistrer le guide</button></div>`
+    : x.steps.length ? `<div class="steps" style="--c:var(--${c});--cs:var(--${cs})">${x.steps.map((s, k) => `<button class="step ${s.done ? 'ok' : ''} ${k === i ? 'cur' : ''}" data-act="stepToggle" data-i="${k}"><span class="dot">${s.done ? ic('check') : ''}</span><span class="st">${esc(s.t)}</span></button>`).join('')}</div>`
+      : `<button class="btn ghost" data-act="editSteps">Écrire les étapes</button>`;
+  const days = [1, 2, 3, 4, 5, 6, 0].filter((d) => S.week[d]?.[x.type] === x.id).map((d) => DAYS[d]).join(', ');
+  return `<button class="back" data-act="back">${ic('back')} Retour</button>
+ <div class="head"><div class="head-l"><span class="eyebrow" style="color:var(--${c})">${x.type === 'pratique' ? 'Pratique' : 'Vidéo'}${days ? ' · ' + esc(days) : ''}</span><h1>${esc(x.name)}</h1></div><button class="iconbtn" data-act="editTheme" data-id="${id}" aria-label="Modifier">${ic('edit')}</button></div>
+ ${top}${counter}
+ ${x.kind !== 'counter' && i >= 0 && !edit ? `<div class="card cur-card" style="border-color:var(--${c})"><span style="color:var(--${c})">${ic('star')}</span><div style="flex:1;min-width:0"><div class="goal-l">Étape actuelle</div><div style="font-weight:700">${esc(x.steps[i].t)}</div></div></div>` : ''}
+ <button class="btn" data-act="log" data-id="${id}">${ic('edit', 'ico-s')} ${x.kind === 'journal' ? 'Ajouter une vidéo' : 'Noter ma session'}</button>
+ ${x.kind === 'steps' ? `<div class="sec"><div class="sec-h"><h2>Guide étape par étape</h2>${x.steps.length && !edit ? `<button class="link" data-act="editSteps">Modifier</button>` : ''}</div>${steps}</div>` : ''}
+ <div class="sec"><h2>${x.kind === 'journal' ? 'Mes vidéos' : 'Historique'}</h2>${x.logs.length ? `<div class="card">${x.logs.slice(0, 40).map((l, k) => `<div class="log"><div style="display:flex;justify-content:space-between;gap:8px"><span class="d">${esc(cap(rel(l.date)))}${l.step ? ' · ' + esc(l.step) : ''}</span><button class="x" style="width:22px;height:22px" data-act="logDel" data-i="${k}" aria-label="Supprimer">${ic('x', 'ico-s')}</button></div>${l.title ? `<span class="x2" style="font-weight:600">${esc(l.title)}</span>` : ''}${l.url ? `<a class="lnk" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${ic('link', 'ico-xs')}${esc(l.url)}</a>` : ''}${l.text ? `<span class="x2">${esc(l.text)}</span>` : ''}</div>`).join('')}</div>` : `<div class="card empty">${x.kind === 'journal' ? 'Après chaque vidéo : titre, lien et ce que tu as retenu.' : 'Après chaque session, note ce que tu as fait.'}</div>`}</div>
+ <div class="sec"><h2>Mes ressources</h2>${x.links.map((l, k) => `<div class="urlbox">${ic('link', 'ico-s')}<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.title || l.url)}</a><button class="x" style="width:24px;height:24px" data-act="linkDel" data-i="${k}" aria-label="Retirer">${ic('x', 'ico-s')}</button></div>`).join('')}
   <form class="card sec" data-form="addLink" style="gap:8px"><input class="inp" name="title" id="link-t" placeholder="Nom (ex : chaîne YouTube)" autocomplete="off"><div class="addf"><input class="inp" name="url" id="link-u" type="url" inputmode="url" placeholder="https://…"><button class="btn sm">Ajouter</button></div></form></div>
- ${confirm ? `<div class="card confirm"><span>Supprimer le parcours « ${esc(p.name)} » ?</span><div class="btn-row"><button class="btn ghost sm" data-act="unconfirm">Annuler</button><button class="btn red sm" data-act="parcDel" data-id="${id}">Supprimer</button></div></div>` : `<button class="danger" data-act="confirm">Supprimer le parcours</button>`}`;
+ ${confirm ? `<div class="card confirm"><span>Supprimer « ${esc(x.name)} » ?</span><div class="btn-row"><button class="btn ghost sm" data-act="unconfirm">Annuler</button><button class="btn red sm" data-act="themeDel" data-id="${id}">Supprimer</button></div></div>` : `<button class="danger" data-act="confirm">Supprimer ce thème</button>`}`;
 }
 
-function vPodcasts() {
-  const t = dkey(); const today = S.podcasts.find((x) => x.date === t); const last = S.podcasts[0]; const sk = podStreak(S);
-  return `<button class="back" data-act="back">${ic('back')} Parcours</button>
- <div class="head"><div class="head-l"><h1>Podcasts</h1><span class="eyebrow">Série : ${sk} jour${sk > 1 ? 's' : ''} 🔥</span></div><button class="iconbtn" data-act="podcastAdd" aria-label="Ajouter une écoute">${ic('plus')}</button></div>
- <div class="card ringwrap">${ring(today ? 1 : 0, 'orange', 72, today ? '1/1' : '0/1', 15)}<div style="display:flex;flex-direction:column;gap:4px"><span class="goal-l">Objectif du jour</span><span style="font-weight:700">1 podcast aujourd’hui</span><span class="pc-sub" style="color:${today ? 'var(--green)' : 'var(--mut)'}">${today ? 'Objectif atteint ✓' : 'Pas encore écouté'}</span></div></div>
- ${!today ? `<button class="btn" data-act="podcastAdd">${ic('mic', 'ico-s')} J’ai écouté un podcast</button>` : ''}
- ${last ? `<div class="sec"><h2>Dernière écoute</h2><button class="card sec" style="text-align:left;width:100%" data-act="open" data-t="podcast" data-id="${last.id}"><div class="pod"><span class="thumb">${ic('head')}</span><div style="flex:1;min-width:0"><div style="font-weight:700">${esc(last.title)}</div><div class="pc-sub">${esc(cap(frDate(last.date, { day: 'numeric', month: 'long' })))}</div></div></div><span style="font-size:14px;color:var(--mut)">${esc((last.summary || '').slice(0, 160))}${(last.summary || '').length > 160 ? '…' : ''}</span>${last.url ? `<span class="urlbox">${ic('link', 'ico-s')}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(last.url)}</span></span>` : ''}</button></div>` : ''}
- <div class="sec"><h2>Historique</h2>${S.podcasts.length > 1 ? `<div class="list">${S.podcasts.slice(1).map((x) => `<button class="row" style="width:100%;text-align:left" data-act="open" data-t="podcast" data-id="${x.id}"><span class="thumb" style="width:40px;height:40px">${ic('head', 'ico-s')}</span><div class="txt"><span class="t">${esc(x.title)}</span><span class="s">${esc(frDate(x.date, { day: 'numeric', month: 'short' }))}</span></div></button>`).join('')}</div>` : `<div class="card empty">${last ? 'Tes prochaines écoutes apparaîtront ici.' : 'Après chaque podcast : titre, lien et ce que tu as retenu. Le coach te fait le résumé.'}</div>`}</div>`;
-}
-function vPodcast({ id, confirm }) {
-  const x = S.podcasts.find((q) => q.id === id); if (!x) return goBack();
-  return `<button class="back" data-act="back">${ic('back')} Podcasts</button>
- <div class="pod"><span class="thumb" style="width:72px;height:72px">${ic('head')}</span><div style="min-width:0"><h1 style="font-size:24px">${esc(x.title)}</h1><span class="eyebrow">${esc(cap(frDate(x.date)))}</span></div></div>
- ${x.url ? `<div class="urlbox">${ic('link', 'ico-s')}<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.url)}</a>${ic('ext', 'ico-s')}</div>` : ''}
- ${x.summary ? `<div class="card sec"><h2>Résumé</h2><span style="font-size:14.5px">${esc(x.summary)}</span></div>` : ''}
- ${x.keys?.length ? `<div class="card sec"><h2>${x.keys.length} choses à retenir</h2><div class="keys">${x.keys.map((k) => `<div>${esc(k)}</div>`).join('')}</div></div>` : ''}
- ${x.raw ? `<div class="card sec"><h2>Mes notes</h2><span style="font-size:14px;color:var(--mut);white-space:pre-wrap">${esc(x.raw)}</span></div>` : ''}
- ${confirm ? `<div class="card confirm"><span>Supprimer cette écoute ?</span><div class="btn-row"><button class="btn ghost sm" data-act="unconfirm">Annuler</button><button class="btn red sm" data-act="podDel" data-id="${id}">Supprimer</button></div></div>` : `<button class="danger" data-act="confirm">Supprimer</button>`}`;
-}
-
-function vCoach() {
-  const msgs = S.chat;
-  return `<div class="head"><div class="head-l"><h1 style="display:flex;align-items:center;gap:10px"><span style="color:var(--amber)">${ic('spark')}</span>Coach</h1><span class="eyebrow">Il voit tous tes projets, parcours et podcasts.</span></div>${msgs.length ? `<button class="link" data-act="chatClear">Effacer</button>` : ''}</div>
- <button class="lost" data-act="lost" ${BUSY.chat ? 'disabled' : ''}><b>${ic('spark', 'ico-s')} Je suis perdu</b><span>Analyse ma situation et dis-moi quoi faire maintenant</span></button>
- <div class="chat" id="chat">${msgs.map((m) => `<div class="bub ${m.role === 'user' ? 'me' : 'ai'} ${m.err ? 'err' : ''}">${m.role === 'user' ? esc(m.content) : md(m.content)}</div>`).join('')}${BUSY.chat ? `<div class="bub ai"><span class="loading"><span class="spin"></span>Le coach réfléchit…</span></div>` : ''}</div>
- <div class="sugg">${['Je fais quoi maintenant ?', 'Où j’en suis sur mes projets ?', 'Planifie ma semaine', 'Qu’est-ce que je néglige ?'].map((q) => `<button data-act="sugg" data-q="${esc(q)}" ${BUSY.chat ? 'disabled' : ''}>${esc(q)}</button>`).join('')}</div>
- <form class="chatform" data-form="chat"><textarea class="inp" name="m" id="chat-in" rows="1" placeholder="Écris au coach…"></textarea><button class="send" aria-label="Envoyer" ${BUSY.chat ? 'disabled' : ''}>${ic('send')}</button></form>`;
-}
-
-function bilanItems() {
-  const t = dkey(), D = S.days[t] || {}; const items = []; const prios = D.plan?.priorities || [];
-  prios.forEach((p) => items.push({ kind: 'prio', id: p.id, text: p.text, done: p.done, moved: p.moved }));
-  const pt = new Set(prios.map((p) => p.taskId).filter(Boolean));
+/* ---------- vue : bilan ---------- */
+function bilanItems(k) {
+  const D = S.days[k] || {}; const t = today(); const plan = planFor(S, k); const items = [{ kind: 'coran', text: 'Règle d’or : 1 page de Coran', done: !!D.coran }];
   S.routines.forEach((r) => items.push({ kind: 'routine', id: r.id, text: r.title, done: (D.routines || []).includes(r.id) }));
-  allTasks().filter(({ t: x }) => !pt.has(x.id) && ((!x.done && x.due && x.due <= t) || x.doneAt === t)).forEach(({ t: x }) => items.push({ kind: 'task', id: x.id, text: x.title, done: x.done }));
+  S.projects.forEach((p) => tasksFor(p, k, t).forEach((x) => items.push({ kind: 'task', id: x.id, text: x.title, sub: p.name, done: x.done })));
+  ['pratique', 'video'].forEach((x) => { if (plan[x]) items.push({ kind: 'evolve', text: `${x === 'pratique' ? 'Pratique' : 'Vidéo'} : ${plan[x].name}`, done: !!D.evolve?.[x] }); });
   return items;
 }
 function vBilan() {
-  const t = dkey(), D = S.days[t] || {}; const it = bilanItems(); const dn = it.filter((x) => x.done), nd = it.filter((x) => !x.done);
+  const t = today(), D = S.days[t] || {}; const it = bilanItems(t); const dn = it.filter((x) => x.done), nd = it.filter((x) => !x.done);
   return `<button class="back" data-act="back">${ic('back')} Aujourd’hui</button>
  <div class="head"><div class="head-l"><h1>Bilan du soir 🌙</h1><span class="eyebrow">${esc(cap(frDate(t)))}</span></div></div>
- <div class="card bilan-top">${ring(it.length ? dn.length / it.length : 0, 'amber', 96, `${dn.length}/${it.length}`, 20)}<div style="display:flex;flex-direction:column;gap:4px"><span style="font-weight:700;font-size:17px">${!it.length ? 'Rien de prévu aujourd’hui' : dn.length === it.length ? 'Journée complète' : dn.length / it.length >= 0.6 ? 'Bonne journée' : 'Journée moyenne'}</span><span class="pc-sub">${nd.length ? `${nd.length} chose${nd.length > 1 ? 's' : ''} à reporter ou abandonner.` : 'Tout est fait.'}</span></div></div>
+ <div class="card bilan-top">${ring(dn.length / it.length, 'amber', 96, `${dn.length}/${it.length}`, 20)}<div style="display:flex;flex-direction:column;gap:4px"><span style="font-weight:700;font-size:17px">${dn.length === it.length ? 'Journée complète' : dn.length / it.length >= 0.6 ? 'Bonne journée' : 'Journée moyenne'}</span><span class="pc-sub" style="color:${D.coran ? 'var(--green)' : 'var(--red)'}">${D.coran ? 'Règle d’or validée ✓' : 'Règle d’or pas encore validée'}</span></div></div>
+ ${nd.length ? `<div class="sec"><h2>Pas fait</h2><div class="list">${nd.map((x) => `<div class="row"><span class="chk"></span><div class="txt"><span class="t">${esc(x.text)}</span>${x.sub ? `<span class="s">${esc(x.sub)}</span>` : ''}</div>${x.kind === 'task' ? `<div class="mini-btns"><button class="a" data-act="bTomorrow" data-id="${x.id}">Demain</button><button data-act="taskDel" data-id="${x.id}">Retirer</button></div>` : x.kind === 'coran' ? `<div class="mini-btns"><button class="a" data-act="coran" data-k="${t}">Valider</button></div>` : ''}</div>`).join('')}</div></div>` : ''}
  ${dn.length ? `<div class="sec"><h2>Fait</h2><div class="list">${dn.map((x) => `<div class="row"><span class="chk g on">${ic('check')}</span><div class="txt"><span class="t">${esc(x.text)}</span></div></div>`).join('')}</div></div>` : ''}
- ${nd.length ? `<div class="sec"><h2>Pas fait</h2><div class="list">${nd.map((x) => `<div class="row"><span class="chk"></span><div class="txt"><span class="t">${esc(x.text)}</span>${x.moved ? '<span class="s">Reporté à demain</span>' : ''}</div>${x.kind !== 'routine' && !x.moved ? `<div class="mini-btns"><button class="a" data-act="bTomorrow" data-k="${x.kind}" data-id="${x.id}">Demain</button><button data-act="bDrop" data-k="${x.kind}" data-id="${x.id}">Retirer</button></div>` : ''}</div>`).join('')}</div></div>` : ''}
  <div class="field"><label class="label" for="bilan-note">Une note sur ta journée ?</label><textarea class="inp" id="bilan-note" placeholder="Ce qui a marché, ce qui a bloqué…">${esc(D.bilan?.note || '')}</textarea></div>
  <button class="btn" data-act="bSave">${D.bilan ? 'Mettre à jour mon bilan' : 'Valider ma journée'}</button>`;
 }
 
-/* ---------- réglages & notifications ---------- */
+/* ---------- vue : réglages & notifications ---------- */
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 const standalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 let pushState = 'unknown';
 async function checkPush() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) { pushState = isIOS && !standalone() ? 'install' : 'unsupported'; return; }
   if (Notification.permission === 'denied') { pushState = 'denied'; return; }
-  try { const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); pushState = sub ? 'on' : 'off'; } catch { pushState = 'off'; }
+  try { const reg = await navigator.serviceWorker.ready; pushState = (await reg.pushManager.getSubscription()) ? 'on' : 'off'; } catch { pushState = 'off'; }
 }
 function b64(s) { const p = '='.repeat((4 - (s.length % 4)) % 4); const r = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); }
 async function enablePush() {
@@ -231,230 +228,113 @@ async function enablePush() {
     const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(cfg.vapidPublicKey) }));
     const { error } = await sb.from('cap_push').upsert({ endpoint: sub.endpoint, user_id: uid(), subscription: sub.toJSON() });
     if (error) throw error;
-    pushState = 'on'; toast('Notifications activées ✓');
+    pushState = 'on'; await flush(); toast('Notifications activées ✓');
   } catch (e) { if (e.message !== 'perm') { console.warn(e); toast('Activation impossible. Réessaie.'); } }
   BUSY.push = false; render();
 }
 async function testPush() {
-  try { const r = await api('/api/push-test', {}); toast(r.sent ? 'Notif envoyée ✓' : 'Aucun appareil abonné.'); } catch { toast('Envoi impossible.'); }
+  try {
+    const { data } = await sb.auth.getSession(); const tok = data?.session?.access_token;
+    const r = await fetch('/api/push-test', { method: 'POST', headers: { authorization: 'Bearer ' + tok } }); const j = await r.json();
+    toast(j.sent ? 'Notif envoyée ✓' : 'Aucun appareil abonné.');
+  } catch { toast('Envoi impossible.'); }
 }
 function vSettings() {
   const s = S.settings; const n = s.notif;
   const pushBox = {
     on: `<div class="alert" style="color:var(--green);background:var(--green-soft)">${ic('check', 'ico-s')} Notifications activées sur ce téléphone</div><button class="btn ghost" data-act="testPush">Envoyer une notif de test</button>`,
-    off: `<span class="pc-sub">Reçois ton plan du matin, le bilan du soir et tes rappels.</span><button class="btn" data-act="enablePush" ${BUSY.push ? 'disabled' : ''}>${BUSY.push ? '<span class="spin"></span>' : ic('bell', 'ico-s')} Activer les notifications</button>`,
+    off: `<span class="pc-sub">Reçois ta journée le matin, chaque rappel à l’heure, et le bilan du soir.</span><button class="btn" data-act="enablePush" ${BUSY.push ? 'disabled' : ''}>${BUSY.push ? '<span class="spin"></span>' : ic('bell', 'ico-s')} Activer les notifications</button>`,
     install: `<span class="pc-sub">Sur iPhone, les notifications marchent seulement depuis l’app installée : dans Safari, touche <b>Partager</b> → <b>Sur l’écran d’accueil</b>, puis ouvre CAP depuis l’icône.</span>`,
     denied: `<span class="pc-sub">Les notifications sont bloquées. Va dans <b>Réglages iPhone → Notifications → CAP</b> et autorise-les.</span>`,
     unsupported: `<span class="pc-sub">Ce navigateur ne gère pas les notifications. Installe CAP sur l’écran d’accueil de ton iPhone.</span>`,
     unknown: `<div class="loading"><span class="spin"></span>Vérification…</div>`,
   }[pushState];
   const tog = (k, l, sub) => `<label class="row" for="n-${k}"><div class="txt"><span class="t">${l}</span><span class="s">${sub}</span></div><input type="checkbox" class="sw" id="n-${k}" data-notif="${k}" ${n[k] ? 'checked' : ''}></label>`;
-  return `<button class="back" data-act="back">${ic('back')} Aujourd’hui</button>
- <div class="head"><div class="head-l"><h1>Réglages</h1></div></div>
+  const tm = (k, l) => `<div class="row"><div class="txt"><span class="t">${l}</span></div><input class="inp tm" type="time" id="set-${k}" data-set="${k}" value="${s[k]}"></div>`;
+  return `<div class="head"><div class="head-l"><h1>Réglages</h1></div></div>
  <div class="card sec"><h2>Notifications</h2>${pushBox}</div>
- <div class="sec"><h2>Quand te prévenir</h2><div class="list">
-  ${tog('morning', 'Plan du matin', 'Le coach prépare tes 3 priorités et te les envoie')}
-  <div class="row"><div class="txt"><span class="t">Heure du plan</span></div><input class="inp" type="time" id="set-m" data-set="morning" value="${s.morning}" style="width:120px"></div>
-  ${tog('evening', 'Bilan du soir', 'Rappel pour valider ta journée')}
-  <div class="row"><div class="txt"><span class="t">Heure du bilan</span></div><input class="inp" type="time" id="set-e" data-set="evening" value="${s.evening}" style="width:120px"></div>
-  ${tog('tasks', 'Rappels de tâches', 'À l’heure mise sur la tâche')}
-  ${tog('stale', 'Relances', 'Quand un projet ou un parcours stagne 3 jours')}
+ <div class="sec"><h2>Heures</h2><div class="list">${tm('morning', 'Résumé de la journée')}${tm('pratique', 'Pratique')}${tm('video', 'Vidéo')}${tm('evening', 'Bilan du soir')}</div><span class="hint">Les heures des posts DYCOM se changent dans le projet DYCOM.</span></div>
+ <div class="sec"><h2>Rappels</h2><div class="list">
+  ${tog('morning', 'Résumé du matin', 'Ta règle d’or, ta pratique, ta vidéo et tes tâches')}
+  ${tog('tasks', 'Tâches', 'Posts DYCOM, checks, et tâches avec une heure')}
+  ${tog('evolve', 'Pratique et vidéo', 'À l’heure choisie, si ce n’est pas fait')}
+  ${tog('evening', 'Bilan du soir', 'Et rappel de la page de Coran si pas validée')}
  </div></div>
+ <button class="btn ghost" data-act="open" data-t="week">${ic('cal', 'ico-s')} Modifier la semaine type</button>
  <div class="card sec"><h2>Compte</h2><span class="pc-sub">${esc(session?.user?.email || '')}</span><button class="btn ghost" data-act="logout">Se déconnecter</button></div>`;
 }
-
-/* ---------- capture (feuille) ---------- */
-const HINTS = [['auto', 'Auto'], ['task', 'Tâche'], ['point', 'Point apprentissage'], ['podcast', 'Podcast'], ['note', 'Note projet']];
-const KIND = { task: ['Tâche', 'blue'], point: ['Point du jour', 'green'], podcast: ['Podcast', 'orange'], note: ['Note projet', 'blue'] };
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-function micBlock() {
-  if (!SR) return `<div class="hint">${ic('mic', 'ico-s')}<span>Pour parler : touche le micro du clavier de ton iPhone.</span></div>`;
-  return SH.listening ? `<button class="listen on" data-act="dictate"><span class="pulse">${ic('mic')}</span><span>Je t’écoute… touche pour arrêter</span></button>`
-    : `<button class="listen" data-act="dictate"><span class="pulse">${ic('mic')}</span><span>Touche pour parler</span></button>`;
+function vLogin() {
+  return `<div class="login"><div class="logo">${ic('star')}</div><h1>CAP</h1><span class="eyebrow">Connecte-toi avec le compte créé dans Supabase.</span>
+  <form class="sec" data-form="login" style="width:100%"><input class="inp" type="email" name="email" id="li-e" placeholder="Email" autocomplete="email" required><input class="inp" type="password" name="pw" id="li-p" placeholder="Mot de passe" autocomplete="current-password" required>
+  ${BUSY.login ? '<div class="loading"><span class="spin"></span>Connexion…</div>' : '<button class="btn">Se connecter</button>'}
+  ${V.loginErr ? `<div class="alert" style="color:var(--red);background:rgba(255,107,107,.12)">${esc(V.loginErr)}</div>` : ''}</form></div>`;
 }
+
+/* ---------- feuilles (ajout rapide, journal, édition) ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+function micBtn() { return SR ? `<button type="button" class="listen ${SH.listening ? 'on' : ''}" data-act="dictate"><span class="pulse">${ic('mic')}</span><span>${SH.listening ? 'Je t’écoute… touche pour arrêter' : 'Touche pour parler'}</span></button>` : ''; }
 function sheetHtml() {
   if (!SH) return ''; const s = SH; let b = '';
   const close = `<button class="x" data-act="sheetClose" aria-label="Fermer">${ic('x')}</button>`;
-  const busy = (t) => `<div class="loading"><span class="spin"></span>${t}</div>`;
-  if (s.mode === 'auto') {
-    b = `<div class="sheet-h"><h2>Note en vrac</h2>${close}</div>`;
-    if (!s.items) {
-      b += `${micBlock()}<textarea class="inp" id="cap-text" placeholder="Parle ou écris naturellement. Ex : relancer le client de L’Atelier jeudi à 14h, j’ai révisé les temps du passé en anglais, j’ai écouté un podcast sur Rome…">${esc(s.text || '')}</textarea>
-   <div class="chips">${HINTS.map(([k, l]) => `<button class="${(s.hint || 'auto') === k ? 'on' : ''}" data-act="hint" data-v="${k}">${l}</button>`).join('')}</div>
-   ${s.busy ? busy('Le coach trie…') : `<button class="btn" data-act="triage">${ic('spark', 'ico-s')} Trier avec le coach</button><button class="btn ghost" data-act="rawTask">Ajouter tel quel comme tâche (Perso)</button>`}`;
-    } else {
-      b += `<div class="label">Le coach a trié. Touche une carte pour l’exclure.</div>${s.items.length ? s.items.map((x, i) => propHtml(x, i)).join('') : '<div class="empty">Rien à ranger trouvé dans ta note.</div>'}
-   <div class="btn-row"><button class="btn ghost" data-act="reEdit">Modifier ma note</button><button class="btn" data-act="apply" ${s.items.some((x) => !x.off) ? '' : 'disabled'}>Tout valider</button></div>`;
-    }
-  } else if (s.mode === 'point') {
-    const p = parc(s.pid); const i = curStep(p);
-    b = `<div class="sheet-h"><h2>Point du jour · ${esc(p.name)}</h2>${close}</div>`;
-    if (!s.res) {
-      b += `<div class="label">Qu’est-ce que tu as fait aujourd’hui ?${p.kind !== 'counter' && i >= 0 ? ' Étape actuelle : ' + esc(p.steps[i].t) : ''}</div>${micBlock()}<textarea class="inp" id="cap-text" placeholder="Ex : j’ai regardé 2 vidéos sur le past perfect, j’ai compris la différence avec le prétérit…">${esc(s.text || '')}</textarea>
-   ${s.busy ? busy('Le coach résume…') : `<button class="btn" data-act="pointAI">${ic('spark', 'ico-s')} Résumer avec le coach</button><button class="btn ghost" data-act="pointRaw">Enregistrer sans résumé</button>`}`;
-    } else {
-      b += `<div class="field"><span class="label">Résumé de ton point</span><textarea class="inp" id="pt-sum" style="min-height:90px">${esc(s.res.summary)}</textarea></div>
-   ${p.kind !== 'counter' && i >= 0 ? `<div class="field"><span class="label">Marquer « ${esc(p.steps[i].t)} » comme terminée ?</span><div class="seg"><button class="${s.res.stepDone ? 'on' : ''}" data-act="stepYN" data-v="1">Oui</button><button class="${!s.res.stepDone ? 'on' : ''}" data-act="stepYN" data-v="0">Pas encore</button></div></div>` : ''}
-   ${p.kind === 'counter' ? `<div class="field"><label class="label" for="pt-cnt">Nouveaux ${esc(p.unit)} appris aujourd’hui</label><input class="inp" id="pt-cnt" type="number" inputmode="numeric" min="0" value="${Number(s.res.countAdd) || 0}"></div>` : ''}
-   <button class="btn" data-act="pointSave">Enregistrer mon point</button>`;
-    }
-  } else if (s.mode === 'podcast') {
-    b = `<div class="sheet-h"><h2>J’ai écouté un podcast</h2>${close}</div>`;
-    if (!s.res) {
-      b += `<div class="field"><label class="label" for="pod-t">Titre</label><input class="inp" id="pod-t" value="${esc(s.title || '')}" placeholder="Ex : La chute de Rome"></div>
-   <div class="field"><label class="label" for="pod-u">Lien (YouTube, Spotify…)</label><input class="inp" id="pod-u" type="url" inputmode="url" value="${esc(s.url || '')}" placeholder="https://…"></div>
-   <div class="field"><span class="label">Ce que tu as retenu</span>${micBlock()}<textarea class="inp" id="cap-text" placeholder="Dis en vrac ce que tu as retenu…">${esc(s.text || '')}</textarea></div>
-   ${s.busy ? busy('Le coach résume…') : `<button class="btn" data-act="podAI">${ic('spark', 'ico-s')} Résumer avec le coach</button><button class="btn ghost" data-act="podRaw">Enregistrer sans résumé</button>`}`;
-    } else {
-      b += `<div class="field"><span class="label">Titre</span><input class="inp" id="pod-t2" value="${esc(s.res.title)}"></div><div class="field"><span class="label">Résumé</span><textarea class="inp" id="pod-sum" style="min-height:90px">${esc(s.res.summary)}</textarea></div><div class="card sec" style="background:var(--bg)"><span class="label">3 choses à retenir</span><div class="keys">${s.res.keys.map((k) => `<div>${esc(k)}</div>`).join('')}</div></div><button class="btn" data-act="podSave">Enregistrer</button>`;
-    }
+  if (s.mode === 'add') {
+    const t = today();
+    b = `<div class="sheet-h"><h2>Nouvelle tâche</h2>${close}</div>${micBtn()}
+   <textarea class="inp" id="cap-text" style="min-height:72px" placeholder="Ce qui te vient en tête…">${esc(s.text || '')}</textarea>
+   <div class="field"><span class="label">Projet</span><div class="chips">${S.projects.map((p) => `<button class="${s.pid === p.id ? 'on' : ''}" style="--c:var(--${p.color})" data-act="sPid" data-v="${p.id}">${esc(p.name)}</button>`).join('')}</div></div>
+   <div class="field"><span class="label">Quand</span><div class="chips">${[['', 'Sans date'], [t, "Aujourd'hui"], [addDays(t, 1), 'Demain']].map(([v, l]) => `<button class="${(s.due ?? t) === v ? 'on' : ''}" data-act="sDue" data-v="${v}">${l}</button>`).join('')}</div>
+    <div class="addf"><input class="inp" type="date" id="s-date" value="${esc(s.due || '')}" aria-label="Autre date"><input class="inp tm" type="time" id="s-time" value="${esc(s.time || '')}" aria-label="Heure du rappel"></div><span class="hint">${ic('bell', 'ico-xs')} Ajoute une heure pour recevoir un rappel.</span></div>
+   <button class="btn" data-act="sAdd">Ajouter</button>`;
+  } else if (s.mode === 'log') {
+    const x = theme(S, s.id); const i = x.kind === 'steps' ? curStep(x) : -1;
+    b = `<div class="sheet-h"><h2>${x.kind === 'journal' ? 'Vidéo' : 'Session'} · ${esc(x.name)}</h2>${close}</div>`;
+    if (x.kind === 'journal') b += `<div class="field"><label class="label" for="lg-t">Titre</label><input class="inp" id="lg-t" value="${esc(s.title || '')}" placeholder="Ex : La chute de Rome"></div><div class="field"><label class="label" for="lg-u">Lien (YouTube, Spotify…)</label><input class="inp" id="lg-u" type="url" inputmode="url" value="${esc(s.url || '')}" placeholder="https://…"></div>`;
+    b += `<div class="field"><span class="label">${x.kind === 'journal' ? 'Ce que tu as retenu' : 'Ce que tu as fait'}</span>${micBtn()}<textarea class="inp" id="cap-text" placeholder="${x.kind === 'journal' ? 'Les idées que tu veux garder…' : 'Ex : 20 nouveaux mots, révision des phrases de base…'}">${esc(s.text || '')}</textarea></div>`;
+    if (x.kind === 'counter') b += `<div class="field"><label class="label" for="lg-n">Nouveaux ${esc(x.unit)} appris</label><input class="inp" id="lg-n" type="number" inputmode="numeric" min="0" value="${s.n || ''}" placeholder="0"></div>`;
+    if (x.kind === 'steps' && i >= 0) b += `<div class="field"><span class="label">Étape « ${esc(x.steps[i].t)} » terminée ?</span><div class="seg"><button class="${s.stepDone ? 'on' : ''}" data-act="sStep" data-v="1">Oui</button><button class="${!s.stepDone ? 'on' : ''}" data-act="sStep" data-v="0">Pas encore</button></div></div>`;
+    b += `<button class="btn" data-act="sLog">Enregistrer</button>`;
   } else if (s.mode === 'project') {
-    const p = s.id ? proj(s.id) : { name: '', sub: '', goal: '' };
-    b = `<div class="sheet-h"><h2>${s.id ? 'Modifier le projet' : 'Nouveau projet'}</h2>${close}</div><form class="sec" data-form="projForm"><div class="field"><label class="label" for="pf-n">Nom</label><input class="inp" id="pf-n" name="name" value="${esc(p.name)}" required></div><div class="field"><label class="label" for="pf-s">Description courte</label><input class="inp" id="pf-s" name="sub" value="${esc(p.sub)}"></div><div class="field"><label class="label" for="pf-g">Objectif</label><input class="inp" id="pf-g" name="goal" value="${esc(p.goal)}" placeholder="Ex : signer 3 nouveaux clients ce trimestre"></div><button class="btn">${s.id ? 'Enregistrer' : 'Créer le projet'}</button></form>`;
-  } else if (s.mode === 'parcours') {
-    const p = s.id ? parc(s.id) : { name: '', goal: '', cat: 'learn', kind: 'steps', total: 500, unit: 'mots' }; const kind = s.kind || p.kind, cat = s.cat || p.cat;
-    b = `<div class="sheet-h"><h2>${s.id ? 'Modifier le parcours' : 'Nouveau parcours'}</h2>${close}</div><form class="sec" data-form="parcForm"><div class="field"><label class="label" for="cf-n">Nom</label><input class="inp" id="cf-n" name="name" value="${esc(p.name)}" required placeholder="Ex : Espagnol"></div><div class="field"><label class="label" for="cf-g">Objectif</label><input class="inp" id="cf-g" name="goal" value="${esc(p.goal)}"></div>
-  <div class="field"><span class="label">Catégorie</span><div class="seg"><button type="button" class="${cat === 'learn' ? 'on' : ''}" data-act="pcat" data-v="learn">Apprentissage</button><button type="button" class="${cat === 'faith' ? 'on' : ''}" data-act="pcat" data-v="faith">Religion</button></div></div>
-  <div class="field"><span class="label">Suivi</span><div class="seg"><button type="button" class="${kind === 'steps' ? 'on' : ''}" data-act="pkind" data-v="steps">Étapes</button><button type="button" class="${kind === 'counter' ? 'on' : ''}" data-act="pkind" data-v="counter">Compteur</button></div></div>
-  ${kind === 'counter' ? `<div class="addf"><input class="inp" id="cf-t" name="total" type="number" min="1" value="${p.total || 100}" aria-label="Total"><input class="inp" id="cf-u" name="unit" value="${esc(p.unit || 'mots')}" aria-label="Unité"></div>` : ''}
-  <button class="btn">${s.id ? 'Enregistrer' : 'Créer le parcours'}</button></form>`;
+    const p = s.id ? proj(S, s.id) : { name: '', sub: '', color: 'blue' }; const col = s.color || p.color;
+    b = `<div class="sheet-h"><h2>${s.id ? 'Modifier le projet' : 'Nouveau projet'}</h2>${close}</div><form class="sec" data-form="projForm"><div class="field"><label class="label" for="pf-n">Nom</label><input class="inp" id="pf-n" name="name" value="${esc(p.name)}" required></div><div class="field"><label class="label" for="pf-s">Description courte</label><input class="inp" id="pf-s" name="sub" value="${esc(p.sub)}"></div>
+   <div class="field"><span class="label">Couleur</span><div class="chips">${['blue', 'pink', 'cyan', 'violet', 'amber'].map((c) => `<button type="button" class="swatch ${col === c ? 'on' : ''}" style="--c:var(--${c})" data-act="sColor" data-v="${c}" aria-label="${c}"></button>`).join('')}</div></div>
+   <button class="btn">${s.id ? 'Enregistrer' : 'Créer le projet'}</button></form>`;
+  } else if (s.mode === 'routine') {
+    const r = S.routines.find((x) => x.id === s.id);
+    b = `<div class="sheet-h"><h2>Tâche quotidienne</h2>${close}</div><form class="sec" data-form="routineForm"><input class="inp" name="t" id="rf-t" value="${esc(r.title)}" required><div class="addf"><span class="label" style="flex:1">Heure du rappel</span><input class="inp tm" type="time" name="h" id="rf-h" value="${esc(r.time || '')}"></div><button class="btn">Enregistrer</button><button type="button" class="danger" data-act="routineDel" data-id="${r.id}">Supprimer cette tâche quotidienne</button></form>`;
+  } else if (s.mode === 'theme') {
+    const x = s.id ? theme(S, s.id) : { name: '', goal: '', type: 'pratique', kind: 'steps', total: 100, unit: 'mots' }; const type = s.type || x.type, kind = s.kind || x.kind;
+    b = `<div class="sheet-h"><h2>${s.id ? 'Modifier le thème' : 'Nouveau thème'}</h2>${close}</div><form class="sec" data-form="themeForm"><div class="field"><label class="label" for="tf-n">Nom</label><input class="inp" id="tf-n" name="name" value="${esc(x.name)}" required placeholder="Ex : Espagnol"></div><div class="field"><label class="label" for="tf-g">Objectif</label><input class="inp" id="tf-g" name="goal" value="${esc(x.goal)}"></div>
+   <div class="field"><span class="label">Type</span><div class="seg"><button type="button" class="${type === 'pratique' ? 'on' : ''}" data-act="sType" data-v="pratique">Pratique</button><button type="button" class="${type === 'video' ? 'on' : ''}" data-act="sType" data-v="video">Vidéo</button></div></div>
+   <div class="field"><span class="label">Suivi</span><div class="seg"><button type="button" class="${kind === 'steps' ? 'on' : ''}" data-act="sKind" data-v="steps">Étapes</button><button type="button" class="${kind === 'counter' ? 'on' : ''}" data-act="sKind" data-v="counter">Compteur</button><button type="button" class="${kind === 'journal' ? 'on' : ''}" data-act="sKind" data-v="journal">Journal</button></div></div>
+   ${kind === 'counter' ? `<div class="addf"><input class="inp" id="tf-t" name="total" type="number" min="1" value="${x.total || 100}" aria-label="Total"><input class="inp" id="tf-u" name="unit" value="${esc(x.unit || 'mots')}" aria-label="Unité"></div>` : ''}
+   <button class="btn">${s.id ? 'Enregistrer' : 'Créer le thème'}</button></form>`;
   }
   return `<div class="sheet-bg" data-act="bgClose"><div class="sheet" role="dialog" aria-modal="true"><span class="grab"></span>${b}</div></div>`;
 }
-function propHtml(x, i) {
-  const [k, c] = KIND[x.type] || ['?', 'amber']; let t = '', s = '';
-  if (x.type === 'task') { t = x.title; s = [proj(x.projectId)?.name || 'Perso', x.due ? dueLabel(x.due) : '', x.time ? 'rappel ' + x.time : ''].filter(Boolean).join(' · '); }
-  if (x.type === 'point') { const p = parc(x.parcoursId); t = x.summary; s = (p?.name || '') + (x.stepDone && p && curStep(p) >= 0 ? ' · étape terminée : ' + p.steps[curStep(p)].t : '') + (x.countAdd ? ` · +${x.countAdd} ${p?.unit || ''}` : ''); }
-  if (x.type === 'podcast') { t = x.title; s = x.summary; }
-  if (x.type === 'note') { t = x.text; s = (proj(x.projectId)?.name || 'Perso') + (x.memory ? ' · mémoire du projet' : ''); }
-  return `<button class="prop ${x.off ? 'off' : ''}" style="--c:var(--${x.type === 'point' ? COL[parc(x.parcoursId)?.cat] || 'green' : c})" data-act="itemToggle" data-i="${i}"><span class="chk ${x.off ? '' : 'on'}">${x.off ? '' : ic('check')}</span><div class="txt"><span class="k">${k}</span><span class="t">${esc(t)}</span>${s ? `<span class="s">${esc(s)}</span>` : ''}</div></button>`;
-}
 
 /* ---------- rendu ---------- */
-function goBack() { const t = V.sub?.type; V.sub = t === 'podcast' ? { type: 'podcasts' } : null; if (t === 'podcasts') V.tab = 'parcours'; if (t === 'bilan' || t === 'settings') V.tab = 'today'; setTimeout(render); return ''; }
+function goBack() { const t = V.sub?.type; V.sub = V.prev || null; V.prev = null; if (t === 'bilan') V.tab = 'today'; setTimeout(render); return ''; }
 function render() {
   if (!session) { $('#app').innerHTML = vLogin(); $('#nav').innerHTML = ''; $('#nav').hidden = true; $('#sheet').innerHTML = ''; return; }
   if (!S) return;
   $('#nav').hidden = false;
-  const h = V.sub ? { project: vProject, parcours: vParcours, podcasts: vPodcasts, podcast: vPodcast, bilan: vBilan, settings: vSettings }[V.sub.type](V.sub) : { today: vToday, projects: vProjects, parcours: vParcoursList, coach: vCoach }[V.tab]();
+  const sub = V.sub;
+  const h = sub ? { day: () => vDay(sub.k), project: vProject, theme: vTheme, bilan: vBilan, week: vWeekType }[sub.type](sub) : { today: () => vDay(today()), week: vWeek, evolve: vEvolve, settings: vSettings }[V.tab]();
   $('#app').innerHTML = h;
-  const tabs = [['today', 'Aujourd’hui', 'home'], ['projects', 'Projets', 'folder'], null, ['parcours', 'Parcours', 'route'], ['coach', 'Coach', 'chat']];
-  $('#nav').innerHTML = `<div class="nav-in">${tabs.map((x) => (x ? `<button class="tab ${V.tab === x[0] && !V.sub ? 'on' : ''}" data-act="tab" data-v="${x[0]}">${ic(x[2])}<span>${x[1]}</span></button>` : `<button class="mic" data-act="mic" aria-label="Capture rapide">${ic('mic')}</button>`)).join('')}</div>`;
+  const tabs = [['today', 'Aujourd’hui', 'home'], ['week', 'Semaine', 'cal'], null, ['evolve', 'Évoluer', 'up'], ['settings', 'Réglages', 'gear']];
+  $('#nav').innerHTML = `<div class="nav-in">${tabs.map((x) => (x ? `<button class="tab ${V.tab === x[0] && !sub ? 'on' : ''}" data-act="tab" data-v="${x[0]}">${ic(x[2])}<span>${x[1]}</span></button>` : `<button class="mic" data-act="add" aria-label="Ajouter une tâche">${ic('plus')}</button>`)).join('')}</div>`;
   $('#sheet').innerHTML = sheetHtml();
 }
 function go(v) { V = v; render(); window.scrollTo(0, 0); }
+const open = (type, extra = {}) => { const prev = V.sub; go({ tab: V.tab, sub: { type, ...extra }, prev }); };
 const scrollBottom = () => requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
-let toastT; function toast(m) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 3200); }
-function readSheet() { const g = (id) => document.getElementById(id); if (!SH) return; if (g('cap-text')) SH.text = g('cap-text').value; if (g('pod-t')) SH.title = g('pod-t').value; if (g('pod-u')) SH.url = g('pod-u').value; }
-function openSheet(s, listen) { SH = s; if (listen && SR) startDictation(); render(); if (!listen || !SR) setTimeout(() => document.getElementById(s.focus || 'cap-text')?.focus(), 60); }
+let toastT; function toast(m) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2600); }
+function readSheet() { const g = (id) => document.getElementById(id)?.value; if (!SH) return; for (const [id, k] of [['cap-text', 'text'], ['lg-t', 'title'], ['lg-u', 'url'], ['lg-n', 'n'], ['s-time', 'time']]) { const v = g(id); if (v !== undefined) SH[k] = v; } }
+function openSheet(s) { SH = s; render(); setTimeout(() => document.getElementById(s.focus || 'cap-text')?.focus(), 60); }
+function keep() { const o = {}; document.querySelectorAll('.sheet input').forEach((i) => { if (i.id) o[i.id] = i.value; }); return o; }
+function restore(o) { for (const [k, v] of Object.entries(o)) { const el = document.getElementById(k); if (el) el.value = v; } }
+function rerenderSheet(fn, skip) { const o = keep(); if (skip) delete o[skip]; readSheet(); fn(); render(); restore(o); }
 
-/* ---------- IA (via /api/ai, clé côté serveur) ---------- */
-async function api(path, body) {
-  const { data } = await sb.auth.getSession(); const tok = data?.session?.access_token;
-  if (!tok) throw { code: 'auth' };
-  if (!navigator.onLine) throw { code: 'offline' };
-  let r; try { r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: JSON.stringify(body) }); } catch { throw { code: 'offline' }; }
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw { code: j.error || 'upstream' };
-  return j;
-}
-const ai = async (body) => (await api('/api/ai', body)).result;
-const ask = (prompt, tier = 'default') => ai({ kind: 'json', input: prompt, tier });
-const aiErr = (e) => ({ offline: 'Pas de connexion. Réessaie quand tu as du réseau.', no_key: 'Clé API Claude manquante dans Vercel.', bad_key: 'Clé API Claude invalide. Vérifie-la dans Vercel.', no_credit: 'Plus de crédit sur ton compte Anthropic.', rate_limited: 'Trop de demandes d’un coup. Réessaie dans un moment.', invalid_json: 'Le coach a mal répondu. Réessaie.', auth: 'Reconnecte-toi.' })[e?.code] || 'Le coach n’a pas répondu. Réessaie.';
-
-async function makePlan() {
-  if (BUSY.plan) return; BUSY.plan = true; render();
-  try { const r = await ask(planPrompt(S)); day().plan = cleanPlan(r, S); save(); } catch (e) { toast(aiErr(e)); }
-  BUSY.plan = false; render();
-}
-async function triage() {
-  readSheet(); stopDictation(); const text = (SH.text || '').trim(); if (!text) return toast('Parle ou écris d’abord ta note.'); SH.busy = true; render();
-  const hint = { auto: '', task: "Il indique que c'est une ou plusieurs TÂCHES.", point: "Il indique que c'est un POINT d'apprentissage.", podcast: "Il indique que c'est un PODCAST écouté.", note: "Il indique que c'est une NOTE sur un projet." }[SH.hint || 'auto'];
-  try {
-    const r = await ask(`L'utilisateur a dicté une note en vrac dans son app d'organisation. Découpe-la en éléments et range chacun. ${hint}
-Types possibles :
-- "task" : une chose à faire. Champs : title (court, verbe à l'infinitif), projectId (id d'un projet ci-dessous, "perso" si aucun ne correspond), due (date AAAA-MM-JJ si une date ou un jour est mentionné, calculée à partir d'aujourd'hui ; si seule une heure est donnée, aujourd'hui ; sinon null), time (heure du rappel HH:MM si une heure est mentionnée ; pour un événement comme un live ou un rendez-vous, 30 minutes avant ; sinon null).
-- "point" : il dit ce qu'il a appris ou fait sur un parcours. Champs : parcoursId, summary (1-2 phrases à la 2e personne, sans inventer), stepDone (true seulement s'il dit clairement avoir fini/maîtrisé l'étape actuelle), countAdd (pour un parcours compteur : nombre de nouveaux éléments appris s'il le dit, sinon 0).
-- "podcast" : un podcast écouté. Champs : title, url (s'il le donne, sinon ""), summary (2-3 phrases basées UNIQUEMENT sur ce qu'il dit), keys (3 choses à retenir, courtes).
-- "note" : une info sur un projet. Champs : projectId, text (reformulé court), memory (true si c'est une info durable sur le projet : cible, offre, décision, blocage).
-
-Réponds uniquement avec ce JSON : {"items":[{"type":"task","title":"","projectId":"","due":null,"time":null}]}
-
-NOTE DICTÉE :
-"""${text}"""
-
-DONNÉES :
-${ctx(S)}`, 'quick');
-    SH.items = (Array.isArray(r?.items) ? r.items : []).map(cleanItem).filter(Boolean);
-  } catch (e) { toast(aiErr(e)); }
-  if (SH) { SH.busy = false; render(); }
-}
-function cleanItem(x) {
-  if (!x || !KIND[x.type]) return null; const o = { type: x.type };
-  if (x.type === 'task') { o.title = String(x.title || '').trim(); o.projectId = proj(x.projectId) ? x.projectId : 'perso'; o.due = /^\d{4}-\d{2}-\d{2}$/.test(x.due || '') ? x.due : null; o.time = /^\d{2}:\d{2}$/.test(x.time || '') ? x.time : null; if (o.time && !o.due) o.due = dkey(); if (!o.title) return null; }
-  if (x.type === 'point') { if (!parc(x.parcoursId)) return null; o.parcoursId = x.parcoursId; o.summary = String(x.summary || '').trim(); o.stepDone = !!x.stepDone; o.countAdd = Math.max(0, parseInt(x.countAdd) || 0); }
-  if (x.type === 'podcast') { o.title = String(x.title || 'Podcast').trim(); o.url = String(x.url || '').trim(); o.summary = String(x.summary || '').trim(); o.keys = (Array.isArray(x.keys) ? x.keys : []).map(String).slice(0, 3); }
-  if (x.type === 'note') { o.projectId = proj(x.projectId) ? x.projectId : 'perso'; o.text = String(x.text || '').trim(); o.memory = !!x.memory; if (!o.text) return null; }
-  return o;
-}
-function applyItem(x, raw) {
-  const t = dkey();
-  if (x.type === 'task') { const p = proj(x.projectId) || proj('perso') || S.projects[0]; p.tasks.push({ id: rid(), title: x.title, due: x.due, time: x.time || null, done: false, doneAt: null }); touch(p); }
-  if (x.type === 'point') { const p = parc(x.parcoursId); const i = curStep(p); const step = p.kind !== 'counter' && i >= 0 ? p.steps[i].t : null; if (x.stepDone && i >= 0) p.steps[i].done = true; if (p.kind === 'counter' && x.countAdd) p.count = Math.min(p.total, p.count + x.countAdd); p.logs.unshift({ date: t, summary: x.summary || 'Session faite', step: x.stepDone ? step : null, raw: raw || '' }); }
-  if (x.type === 'podcast') S.podcasts.unshift({ id: rid(), date: t, title: x.title, url: x.url, summary: x.summary, keys: x.keys, raw: raw || '' });
-  if (x.type === 'note') { const p = proj(x.projectId) || S.projects[0]; if (x.memory) p.memory.push(x.text); else p.notes.unshift({ date: t, text: x.text }); touch(p); }
-}
-async function pointAI() {
-  readSheet(); stopDictation(); const text = (SH.text || '').trim(); if (!text) return toast('Dis d’abord ce que tu as fait.'); const p = parc(SH.pid); const i = curStep(p); SH.busy = true; render();
-  try {
-    const r = await ask(`L'utilisateur fait le point sur son parcours « ${p.name} » (objectif : ${p.goal}). ${p.kind === 'counter' ? `C'est un compteur : il en est à ${p.count}/${p.total} ${p.unit}.` : `Étapes : ${p.steps.map((s, k) => `${k + 1}. ${s.t}${s.done ? ' (fait)' : ''}`).join(' ; ')}. Étape actuelle : ${i >= 0 ? p.steps[i].t : 'aucune'}.`}
-Ce qu'il dit avoir fait aujourd'hui :
-"""${text}"""
-
-Résume en 1 ou 2 phrases courtes à la 2e personne, sans rien inventer. stepDone = true seulement s'il dit clairement avoir terminé ou maîtrisé l'étape actuelle. countAdd = nombre de nouveaux ${p.unit || 'éléments'} appris s'il le dit (compteur seulement), sinon 0.
-Réponds uniquement avec ce JSON : {"summary":"","stepDone":false,"countAdd":0}`, 'quick');
-    SH.res = { summary: String(r?.summary || text), stepDone: !!r?.stepDone, countAdd: Math.max(0, parseInt(r?.countAdd) || 0) };
-  } catch (e) { toast(aiErr(e)); }
-  if (SH) { SH.busy = false; render(); }
-}
-async function podAI() {
-  readSheet(); stopDictation(); if (!(SH.text || '').trim() && !(SH.title || '').trim()) return toast('Donne au moins le titre ou ce que tu as retenu.'); SH.busy = true; render();
-  try {
-    const r = await ask(`L'utilisateur a écouté un podcast et dicte ce qu'il en a retenu.
-Titre donné : ${SH.title || '(aucun)'}
-Lien : ${SH.url || '(aucun)'}
-Ce qu'il a retenu (dicté en vrac) :
-"""${SH.text || ''}"""
-
-Fais un résumé court (2 à 3 phrases) basé UNIQUEMENT sur ce qu'il dit et le titre : n'ajoute aucun fait qu'il n'a pas mentionné. Puis 3 choses à retenir, courtes. Garde son titre s'il en a donné un (corrige juste l'orthographe), sinon propose un titre court.
-Réponds uniquement avec ce JSON : {"title":"","summary":"","keys":["","",""]}`, 'quick');
-    SH.res = { title: String(r?.title || SH.title || 'Podcast'), summary: String(r?.summary || ''), keys: (Array.isArray(r?.keys) ? r.keys : []).map(String).filter(Boolean).slice(0, 3) };
-  } catch (e) { toast(aiErr(e)); }
-  if (SH) { SH.busy = false; render(); }
-}
-async function genGuide() {
-  const p = parc(V.sub.id); if (BUSY.guide) return; BUSY.guide = true; render();
-  try {
-    const r = await ask(`Crée un guide étape par étape pour ce parcours d'apprentissage : « ${p.name} », objectif : « ${p.goal || p.name} ». L'utilisateur apprend seul sur YouTube, Google, etc. : pas de cours, uniquement les étapes à cocher, de la plus simple à la plus avancée. 6 à 12 étapes, chacune un intitulé court en français (8 mots max).
-Réponds uniquement avec ce JSON : {"steps":["",""]}`);
-    const steps = (Array.isArray(r?.steps) ? r.steps : []).map((s) => String(s).trim()).filter(Boolean).slice(0, 15);
-    if (steps.length) { p.steps = st(steps); if (V.sub) V.sub.edit = false; save(); } else toast('Le coach n’a pas proposé d’étapes. Réessaie.');
-  } catch (e) { toast(aiErr(e)); }
-  BUSY.guide = false; render();
-}
-async function coachSend(msg) {
-  msg = String(msg || '').trim(); if (!msg || BUSY.chat) return;
-  S.chat.push({ role: 'user', content: msg }); BUSY.chat = true; V = { tab: 'coach', sub: null }; render(); scrollBottom();
-  const system = `Tu es le coach personnel d'organisation de l'utilisateur, un jeune entrepreneur (agence SMMA L'Atelier, communauté DYCOM) qui veut aussi apprendre beaucoup de choses et qui a tendance à s'éparpiller. Tu vois toutes ses données ci-dessous. Règles : réponds en français, tutoie-le, sois direct et concret, 120 mots maximum. Quand il est perdu ou demande quoi faire : dis-lui quoi faire MAINTENANT (1 à 3 actions numérotées, la plus importante d'abord, avec une durée estimée) et ce qu'il peut ignorer pour l'instant. Appuie-toi sur les retards, les projets qui stagnent et l'heure qu'il est. Pas de longs discours.
-
-DONNÉES ACTUELLES :
-${ctx(S)}`;
-  try { const text = await ai({ kind: 'text', system, input: S.chat.filter((m) => !m.err).slice(-12).map((m) => ({ role: m.role, content: m.content })) }); S.chat.push({ role: 'assistant', content: text }); }
-  catch (e) { S.chat.push({ role: 'assistant', content: aiErr(e), err: true }); }
-  BUSY.chat = false; save(); render(); scrollBottom();
-}
-
-/* ---------- micro ---------- */
+/* ---------- micro (dictée du navigateur) ---------- */
 let rec = null;
 function startDictation() {
   if (!SR || rec) return;
@@ -462,78 +342,79 @@ function startDictation() {
     rec = new SR(); rec.lang = 'fr-FR'; rec.continuous = true; rec.interimResults = true;
     const base = SH.text ? SH.text.trim() + ' ' : '';
     rec.onresult = (e) => { let s = ''; for (const r of e.results) s += r[0].transcript; if (!SH) return; SH.text = base + s; const ta = document.getElementById('cap-text'); if (ta) ta.value = SH.text; };
-    rec.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') toast('Micro refusé : autorise-le dans Réglages iPhone, ou utilise le micro du clavier.'); };
+    rec.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') toast('Micro refusé : utilise le micro du clavier.'); };
     rec.onend = () => { rec = null; if (SH) { readSheet(); SH.listening = false; render(); } };
     rec.start(); SH.listening = true;
-  } catch { rec = null; SH.listening = false; }
+  } catch { rec = null; if (SH) SH.listening = false; }
 }
-function stopDictation() { if (rec) { try { rec.stop(); } catch {} } }
+const stopDictation = () => { if (rec) { try { rec.stop(); } catch {} } };
 
 /* ---------- actions ---------- */
+function setTask(x, p, done, k) { x.done = done; x.doneAt = done ? k || today() : null; }
 const A = {
   tab: (e) => go({ tab: e.dataset.v, sub: null }),
-  open: (e) => { go({ tab: V.tab, sub: { type: e.dataset.t, id: e.dataset.id } }); if (e.dataset.t === 'settings') checkPush().then(render); },
+  open: (e) => open(e.dataset.t, { id: e.dataset.id }),
+  openDay: (e) => { if (e.dataset.k === today()) return go({ tab: 'today', sub: null }); open('day', { k: e.dataset.k }); },
   back: () => { goBack(); window.scrollTo(0, 0); },
-  mic: () => openSheet({ mode: 'auto', hint: 'auto' }, true),
-  plan: () => makePlan(),
-  prio: (e) => { const p = day().plan.priorities.find((x) => x.id === e.dataset.id); p.done = !p.done; if (p.taskId) { const f = findTask(p.taskId); if (f) { f.t.done = p.done; f.t.doneAt = p.done ? dkey() : null; touch(f.p); } } save(); render(); },
-  routine: (e) => { const D = day(); D.routines ??= []; const i = D.routines.indexOf(e.dataset.id); i < 0 ? D.routines.push(e.dataset.id) : D.routines.splice(i, 1); save(); render(); },
-  task: (e) => { const f = findTask(e.dataset.id); if (!f) return; f.t.done = !f.t.done; f.t.doneAt = f.t.done ? dkey() : null; touch(f.p); const pr = S.days[dkey()]?.plan?.priorities?.find((x) => x.taskId === f.t.id); if (pr) pr.done = f.t.done; save(); render(); },
+  wk: (e) => { V.weekOff = +e.dataset.n === 0 ? 0 : (V.weekOff || 0) + +e.dataset.n; render(); },
+  coran: (e) => { const D = day(e.dataset.k); D.coran = !D.coran; if (D.coran && e.dataset.k === today()) toast('Règle d’or validée ✓'); save(); render(); },
+  routine: (e) => { const D = day(e.dataset.k); D.routines ??= []; const i = D.routines.indexOf(e.dataset.id); i < 0 ? D.routines.push(e.dataset.id) : D.routines.splice(i, 1); save(); render(); },
+  task: (e) => { const f = findTask(e.dataset.id); if (!f) return; setTask(f.t, f.p, !f.t.done, e.dataset.k); save(); render(); },
+  evolve: (e) => {
+    const D = day(e.dataset.k); D.evolve ??= {}; const kind = e.dataset.kind;
+    if (D.evolve[kind]) { D.evolve[kind] = false; save(); return render(); }
+    D.evolve[kind] = true; save(); render();
+    const x = theme(S, e.dataset.id); if (x) openSheet({ mode: 'log', id: x.id, k: e.dataset.k, kind, focus: x.kind === 'journal' ? 'lg-t' : 'cap-text' });
+  },
   taskDel: (e) => { const f = findTask(e.dataset.id); if (f) { f.p.tasks = f.p.tasks.filter((x) => x !== f.t); save(); render(); } },
   ptab: (e) => { V.sub.tab = e.dataset.v; render(); },
-  memDel: (e) => { proj(e.dataset.id).memory.splice(+e.dataset.i, 1); save(); render(); },
-  noteDel: (e) => { proj(e.dataset.id).notes.splice(+e.dataset.i, 1); save(); render(); },
-  routineDel: (e) => { S.routines = S.routines.filter((r) => r.id !== e.dataset.id); save(); render(); },
   confirm: () => { V.sub.confirm = true; render(); scrollBottom(); }, unconfirm: () => { V.sub.confirm = false; render(); },
-  projDel: (e) => { const id = e.dataset.id; S.projects = S.projects.filter((p) => p.id !== id); S.routines = S.routines.filter((r) => r.projectId !== id); save(); go({ tab: 'projects', sub: null }); },
-  parcDel: (e) => { S.parcours = S.parcours.filter((p) => p.id !== e.dataset.id); save(); go({ tab: 'parcours', sub: null }); },
-  podDel: (e) => { S.podcasts = S.podcasts.filter((p) => p.id !== e.dataset.id); save(); go({ tab: 'parcours', sub: { type: 'podcasts' } }); },
-  newProject: () => openSheet({ mode: 'project', focus: 'pf-n' }), editProject: (e) => openSheet({ mode: 'project', id: e.dataset.id, focus: 'pf-n' }),
-  newParcours: () => openSheet({ mode: 'parcours', focus: 'cf-n' }), editParcours: (e) => openSheet({ mode: 'parcours', id: e.dataset.id }),
-  pcat: (e) => { keepForm(); SH.cat = e.dataset.v; render(); restoreForm(); }, pkind: (e) => { keepForm(); SH.kind = e.dataset.v; render(); restoreForm(); },
-  stepToggle: (e) => { const p = parc(V.sub.id); const s = p.steps[+e.dataset.i]; s.done = !s.done; if (s.done) p.logs.unshift({ date: dkey(), summary: 'Étape terminée : ' + s.t, step: s.t }); save(); render(); },
+  projDel: (e) => { const id = e.dataset.id; S.projects = S.projects.filter((p) => p.id !== id); S.routines = S.routines.filter((r) => r.projectId !== id); save(); go({ tab: 'today', sub: null }); },
+  themeDel: (e) => { const id = e.dataset.id; S.themes = S.themes.filter((x) => x.id !== id); for (const d of Object.keys(S.week)) for (const k of ['pratique', 'video']) if (S.week[d][k] === id) S.week[d][k] = ''; save(); go({ tab: 'evolve', sub: null }); },
+  editProject: (e) => openSheet({ mode: 'project', id: e.dataset.id, focus: 'pf-n' }),
+  newTheme: () => openSheet({ mode: 'theme', focus: 'tf-n' }), editTheme: (e) => openSheet({ mode: 'theme', id: e.dataset.id }),
+  routineEdit: (e) => openSheet({ mode: 'routine', id: e.dataset.id, focus: 'rf-t' }),
+  routineDel: (e) => { S.routines = S.routines.filter((r) => r.id !== e.dataset.id); SH = null; save(); render(); },
+  stepToggle: (e) => { const x = theme(S, V.sub.id); const s = x.steps[+e.dataset.i]; s.done = !s.done; if (s.done) x.logs.unshift({ date: today(), text: 'Étape terminée : ' + s.t, step: s.t }); save(); render(); },
   editSteps: () => { V.sub.edit = true; render(); },
-  editDone: () => { const p = parc(V.sub.id); saveStepInputs(p); V.sub.edit = false; save(); render(); },
-  stepDel: (e) => { const p = parc(V.sub.id); saveStepInputs(p); p.steps.splice(+e.dataset.i, 1); save(); render(); },
-  genGuide: () => genGuide(),
-  cnt: (e) => { const p = parc(V.sub.id); p.count = Math.max(0, Math.min(p.total, p.count + +e.dataset.n)); if (+e.dataset.n > 0) logCount(p, +e.dataset.n); save(); render(); },
-  linkDel: (e) => { parc(V.sub.id).links.splice(+e.dataset.i, 1); save(); render(); },
-  point: (e) => openSheet({ mode: 'point', pid: e.dataset.id }, true),
-  podcastAdd: () => openSheet({ mode: 'podcast', focus: 'pod-t' }),
-  lost: () => coachSend('Je suis perdu, je fais quoi maintenant ?'),
-  sugg: (e) => coachSend(e.dataset.q),
-  chatClear: () => { S.chat = []; save(); render(); },
-  bTomorrow: (e) => {
-    const k = e.dataset.k, id = e.dataset.id, t = dkey(), tm = addDays(t, 1);
-    if (k === 'prio') { const p = S.days[t].plan.priorities.find((x) => x.id === id); p.moved = true; const T = day(tm); T.carry ??= []; T.carry.push(p.text); if (p.taskId) { const f = findTask(p.taskId); if (f) f.t.due = tm; } }
-    if (k === 'task') { const f = findTask(id); if (f) f.t.due = tm; }
-    toast('Reporté à demain'); save(); render();
+  editDone: () => { const x = theme(S, V.sub.id); saveSteps(x); V.sub.edit = false; save(); render(); },
+  stepDel: (e) => { const x = theme(S, V.sub.id); saveSteps(x); x.steps.splice(+e.dataset.i, 1); save(); render(); },
+  cnt: (e) => { const x = theme(S, V.sub.id); const n = +e.dataset.n; x.count = Math.max(0, Math.min(x.total, x.count + n)); save(); render(); },
+  linkDel: (e) => { theme(S, V.sub.id).links.splice(+e.dataset.i, 1); save(); render(); },
+  logDel: (e) => { theme(S, V.sub.id).logs.splice(+e.dataset.i, 1); save(); render(); },
+  log: (e) => { const x = theme(S, e.dataset.id); openSheet({ mode: 'log', id: x.id, k: today(), focus: x.kind === 'journal' ? 'lg-t' : 'cap-text' }); },
+  add: () => { const pid = V.sub?.type === 'project' ? V.sub.id : S.projects[0]?.id; openSheet({ mode: 'add', pid, due: V.sub?.type === 'day' ? V.sub.k : today() }); },
+  sPid: (e) => rerenderSheet(() => { SH.pid = e.dataset.v; }),
+  sDue: (e) => rerenderSheet(() => { SH.due = e.dataset.v; }, 's-date'),
+  sAdd: () => {
+    readSheet(); stopDictation(); const title = (SH.text || '').trim(); if (!title) return toast('Écris d’abord ta tâche.');
+    const p = proj(S, SH.pid) || S.projects[0]; const time = SH.time || null; const due = SH.due === undefined ? today() : SH.due || (time ? today() : null);
+    p.tasks.push({ id: rid(), title, due, time, done: false, doneAt: null }); SH = null; save(); render(); toast(`Ajouté dans ${p.name} ✓`);
   },
-  bDrop: (e) => { const k = e.dataset.k, id = e.dataset.id, t = dkey(); if (k === 'prio') { const D = S.days[t]; D.plan.priorities = D.plan.priorities.filter((x) => x.id !== id); } if (k === 'task') { const f = findTask(id); if (f) { f.t.due = null; f.t.time = null; } } save(); render(); },
-  bSave: () => { const it = bilanItems(); day().bilan = { score: it.filter((x) => x.done).length, total: it.length, note: $('#bilan-note').value.trim(), at: Date.now() }; save(); toast('Journée validée ✓'); go({ tab: 'today', sub: null }); },
+  sStep: (e) => rerenderSheet(() => { SH.stepDone = e.dataset.v === '1'; }),
+  sLog: () => {
+    readSheet(); stopDictation(); const x = theme(S, SH.id); const text = (SH.text || '').trim(); const k = SH.k || today();
+    if (x.kind === 'journal') { if (!(SH.title || '').trim() && !text) return toast('Donne au moins le titre.'); let url = (SH.url || '').trim(); if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url; x.logs.unshift({ date: k, title: (SH.title || '').trim(), url, text }); }
+    else {
+      const n = Math.max(0, parseInt(SH.n) || 0); let step = null;
+      if (x.kind === 'counter' && n) x.count = Math.min(x.total, x.count + n);
+      if (x.kind === 'steps' && SH.stepDone) { const i = curStep(x); if (i >= 0) { x.steps[i].done = true; step = x.steps[i].t; } }
+      x.logs.unshift({ date: k, text: [n ? `+${n} ${x.unit}` : '', text].filter(Boolean).join(' · ') || 'Session faite', step });
+    }
+    // Marque la pratique/vidéo du jour comme faite si c'est le thème prévu
+    const plan = planFor(S, k); const D = day(k); D.evolve ??= {}; if (plan[x.type]?.id === x.id) D.evolve[x.type] = true;
+    SH = null; save(); render(); toast('Enregistré ✓');
+  },
+  sColor: (e) => rerenderSheet(() => { SH.color = e.dataset.v; }),
+  sType: (e) => rerenderSheet(() => { SH.type = e.dataset.v; }), sKind: (e) => rerenderSheet(() => { SH.kind = e.dataset.v; }),
+  bTomorrow: (e) => { const f = findTask(e.dataset.id); if (f) { f.t.due = addDays(today(), 1); toast('Reporté à demain'); save(); render(); } },
+  bSave: () => { const it = bilanItems(today()); day(today()).bilan = { score: it.filter((x) => x.done).length, total: it.length, note: $('#bilan-note').value.trim(), at: Date.now() }; save(); toast('Journée validée ✓'); go({ tab: 'today', sub: null }); },
   sheetClose: () => { stopDictation(); SH = null; render(); },
-  hint: (e) => { readSheet(); SH.hint = e.dataset.v; render(); },
-  triage: () => triage(),
-  reEdit: () => { SH.items = null; render(); },
-  itemToggle: (e) => { const x = SH.items[+e.dataset.i]; x.off = !x.off; render(); },
-  apply: () => { const n = SH.items.filter((x) => !x.off); n.forEach((x) => applyItem(x, SH.text)); SH = null; save(); render(); toast(`${n.length} élément${n.length > 1 ? 's' : ''} rangé${n.length > 1 ? 's' : ''} ✓`); },
-  rawTask: () => { readSheet(); stopDictation(); const t = (SH.text || '').trim(); if (!t) return toast('Écris d’abord ta note.'); applyItem({ type: 'task', title: t, projectId: 'perso', due: null }); SH = null; save(); render(); toast('Ajouté dans Perso ✓'); },
   dictate: () => { readSheet(); if (rec) stopDictation(); else { startDictation(); render(); } },
-  pointAI: () => pointAI(),
-  pointRaw: () => { readSheet(); stopDictation(); const t = (SH.text || '').trim(); if (!t) return toast('Dis d’abord ce que tu as fait.'); applyItem({ type: 'point', parcoursId: SH.pid, summary: t, stepDone: false, countAdd: 0 }); SH = null; save(); render(); toast('Point enregistré ✓'); },
-  stepYN: (e) => { SH.res.summary = $('#pt-sum').value; SH.res.stepDone = e.dataset.v === '1'; render(); },
-  pointSave: () => { const r = SH.res; r.summary = $('#pt-sum').value.trim(); const c = $('#pt-cnt'); if (c) r.countAdd = Math.max(0, parseInt(c.value) || 0); applyItem({ type: 'point', parcoursId: SH.pid, ...r }, SH.text); SH = null; save(); render(); toast('Point enregistré ✓'); },
-  podAI: () => podAI(),
-  podRaw: () => { readSheet(); stopDictation(); if (!(SH.title || SH.text || '').trim()) return toast('Donne au moins le titre.'); applyItem({ type: 'podcast', title: (SH.title || 'Podcast').trim(), url: (SH.url || '').trim(), summary: (SH.text || '').trim(), keys: [] }, SH.text); SH = null; save(); go({ tab: 'parcours', sub: { type: 'podcasts' } }); toast('Écoute enregistrée ✓'); },
-  podSave: () => { const r = SH.res; applyItem({ type: 'podcast', title: $('#pod-t2').value.trim() || r.title, url: (SH.url || '').trim(), summary: $('#pod-sum').value.trim(), keys: r.keys }, SH.text); SH = null; save(); go({ tab: 'parcours', sub: { type: 'podcasts' } }); toast('Écoute enregistrée ✓'); },
-  enablePush: () => enablePush(),
-  testPush: () => testPush(),
+  enablePush: () => enablePush(), testPush: () => testPush(),
   logout: async () => { await flush(); await sb.auth.signOut(); session = null; S = null; V = { tab: 'today', sub: null }; render(); },
 };
-function saveStepInputs(p) { document.querySelectorAll('[data-step]').forEach((inp) => { const k = +inp.dataset.step; if (p.steps[k]) p.steps[k].t = inp.value.trim() || p.steps[k].t; }); }
-function logCount(p, n) { const t = dkey(); const l = p.logs[0]; if (l && l.date === t && l.cnt != null) { l.cnt += n; l.summary = `+${l.cnt} ${p.unit} aujourd’hui (total ${p.count})`; } else p.logs.unshift({ date: t, cnt: n, summary: `+${n} ${p.unit} aujourd’hui (total ${p.count})` }); }
-let kept = {}; function keepForm() { kept = {}; document.querySelectorAll('.sheet input').forEach((i) => { if (i.id) kept[i.id] = i.value; }); }
-function restoreForm() { for (const [k, v] of Object.entries(kept)) { const el = document.getElementById(k); if (el) el.value = v; } }
+function saveSteps(x) { document.querySelectorAll('[data-step]').forEach((inp) => { const k = +inp.dataset.step; if (x.steps[k]) x.steps[k].t = inp.value.trim() || x.steps[k].t; }); }
 
 const F = {
   login: async (f, d) => {
@@ -543,53 +424,52 @@ const F = {
     if (error) { V.loginErr = /invalid/i.test(error.message) ? 'Email ou mot de passe incorrect.' : 'Connexion impossible : ' + error.message; return render(); }
     session = data.session; await startSession();
   },
-  addPrio: (f, d) => { const t = d.get('t').trim(); if (!t) return; const D = day(); D.plan ??= { message: '', priorities: [] }; D.plan.priorities.push({ id: rid(), text: t, cat: 'work', done: false }); save(); render(); },
-  addMem: (f, d) => { const t = d.get('t').trim(); if (!t) return; const p = proj(f.dataset.id); p.memory.push(t); touch(p); save(); render(); },
-  addRoutine: (f, d) => { const t = d.get('t').trim(); if (!t) return; S.routines.push({ id: rid(), title: t, projectId: f.dataset.id }); save(); render(); },
-  addTask: (f, d) => { const t = d.get('t').trim(); if (!t) return; const p = proj(f.dataset.id); const time = d.get('h') || null; p.tasks.push({ id: rid(), title: t, due: d.get('d') || (time ? dkey() : null), time, done: false, doneAt: null }); touch(p); save(); render(); document.getElementById('task-in')?.focus(); },
-  addNote: (f, d) => { const t = d.get('t').trim(); if (!t) return; const p = proj(f.dataset.id); p.notes.unshift({ date: dkey(), text: t }); touch(p); save(); render(); },
-  addLink: (f, d) => { let u = d.get('url').trim(); if (!u) return; if (!/^https?:\/\//i.test(u)) u = 'https://' + u; parc(V.sub.id).links.push({ title: d.get('title').trim(), url: u }); save(); render(); },
-  addStep: (f, d) => { const t = d.get('t').trim(); if (!t) return; const p = parc(V.sub.id); saveStepInputs(p); p.steps.push({ t, done: false }); save(); render(); document.getElementById('step-new')?.focus(); },
-  setCount: (f, d) => { const p = parc(V.sub.id); const n = parseInt(d.get('n')); if (isNaN(n)) return; const diff = Math.max(0, Math.min(p.total, n)) - p.count; p.count = Math.max(0, Math.min(p.total, n)); if (diff > 0) logCount(p, diff); save(); render(); },
-  chat: (f, d) => coachSend(d.get('m')),
+  quickTask: (f, d) => {
+    const t = d.get('t').trim(); if (!t) return; const p = proj(S, f.dataset.id); const time = d.get('h') || null; const k = f.dataset.k;
+    p.tasks.push({ id: rid(), title: t, due: k === today() && !time ? null : k, time, done: false, doneAt: null }); save(); render(); document.getElementById('qa-' + p.id)?.focus();
+  },
+  addRoutine: (f, d) => { const t = d.get('t').trim(); if (!t) return; S.routines.push({ id: rid(), title: t, projectId: f.dataset.id, time: d.get('h') || null }); save(); render(); },
+  addTask: (f, d) => { const t = d.get('t').trim(); if (!t) return; const p = proj(S, f.dataset.id); const time = d.get('h') || null; p.tasks.push({ id: rid(), title: t, due: d.get('d') || (time ? today() : null), time, done: false, doneAt: null }); save(); render(); document.getElementById('task-in')?.focus(); },
+  addLink: (f, d) => { let u = d.get('url').trim(); if (!u) return; if (!/^https?:\/\//i.test(u)) u = 'https://' + u; theme(S, V.sub.id).links.push({ title: d.get('title').trim(), url: u }); save(); render(); },
+  addStep: (f, d) => { const t = d.get('t').trim(); if (!t) return; const x = theme(S, V.sub.id); saveSteps(x); x.steps.push({ t, done: false }); save(); render(); document.getElementById('step-new')?.focus(); },
+  setCount: (f, d) => { const x = theme(S, V.sub.id); const n = parseInt(d.get('n')); if (isNaN(n)) return; x.count = Math.max(0, Math.min(x.total, n)); save(); render(); },
   projForm: (f, d) => {
-    const o = { name: d.get('name').trim(), sub: d.get('sub').trim(), goal: d.get('goal').trim() }; if (!o.name) return;
-    if (SH.id) Object.assign(proj(SH.id), o);
-    else { const id = rid(); S.projects.splice(S.projects.length - 1, 0, { id, ...o, memory: [], tasks: [], notes: [], lastAt: dkey() }); SH = null; save(); return go({ tab: 'projects', sub: { type: 'project', id } }); }
+    const o = { name: d.get('name').trim(), sub: d.get('sub').trim(), color: SH.color || (SH.id ? proj(S, SH.id).color : 'blue') }; if (!o.name) return;
+    if (SH.id) Object.assign(proj(S, SH.id), o); else S.projects.push({ id: rid(), ...o, tasks: [] });
     SH = null; save(); render();
   },
-  parcForm: (f, d) => {
-    const name = d.get('name').trim(); if (!name) return; const base = SH.id ? parc(SH.id) : null; const kind = SH.kind || base?.kind || 'steps', cat = SH.cat || base?.cat || 'learn';
-    const o = { name, goal: d.get('goal').trim(), cat, kind, icon: base?.icon || (cat === 'faith' ? 'moon' : 'route') };
+  routineForm: (f, d) => { const r = S.routines.find((x) => x.id === SH.id); r.title = d.get('t').trim() || r.title; r.time = d.get('h') || null; SH = null; save(); render(); },
+  themeForm: (f, d) => {
+    const name = d.get('name').trim(); if (!name) return; const base = SH.id ? theme(S, SH.id) : null; const type = SH.type || base?.type || 'pratique', kind = SH.kind || base?.kind || 'steps';
+    const o = { name, goal: d.get('goal').trim(), type, kind, icon: base?.icon || (type === 'video' ? 'head' : 'route') };
     if (kind === 'counter') { o.total = Math.max(1, parseInt(d.get('total')) || 100); o.unit = (d.get('unit') || '').trim() || 'éléments'; o.count = Math.min(base?.count || 0, o.total); }
     if (base) { Object.assign(base, o); SH = null; save(); return render(); }
-    const id = rid(); S.parcours.push({ id, ...o, steps: [], logs: [], links: [], count: o.count || 0 }); SH = null; save(); go({ tab: 'parcours', sub: { type: 'parcours', id } });
+    const id = rid(); S.themes.push({ id, ...o, steps: [], logs: [], links: [], count: o.count || 0 }); SH = null; save(); open('theme', { id });
   },
 };
 document.addEventListener('click', (ev) => { const el = ev.target.closest('[data-act]'); if (!el || el.disabled) return; if (el.dataset.act === 'bgClose') { if (ev.target === el) A.sheetClose(); return; } const fn = A[el.dataset.act]; if (!fn) return; ev.preventDefault(); fn(el, ev); });
 document.addEventListener('submit', (ev) => { const f = ev.target.closest('[data-form]'); if (!f) return; ev.preventDefault(); const fn = F[f.dataset.form]; if (fn) fn(f, new FormData(f)); });
-document.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey && ev.target.id === 'chat-in') { ev.preventDefault(); ev.target.form.requestSubmit(); } if (ev.key === 'Escape' && SH) A.sheetClose(); });
-document.addEventListener('input', (ev) => { if (ev.target.id === 'chat-in') { ev.target.style.height = '46px'; ev.target.style.height = Math.min(140, ev.target.scrollHeight) + 'px'; } });
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && SH) A.sheetClose(); });
 document.addEventListener('change', (ev) => {
   const el = ev.target;
   if (el.dataset.notif) { S.settings.notif[el.dataset.notif] = el.checked; save(); }
   if (el.dataset.set && /^\d{2}:\d{2}$/.test(el.value)) { S.settings[el.dataset.set] = el.value; save(); toast('Enregistré ✓'); }
+  if (el.dataset.week) { const d = el.dataset.week; S.week[d] ??= {}; S.week[d][el.dataset.kind] = el.value; save(); toast('Semaine type mise à jour ✓'); }
+  if (el.id === 's-date' && SH) { rerenderSheet(() => { SH.due = el.value; }); }
 });
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pull(); else if (dirty) flush(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { pull(); render(); } else if (dirty) flush(); });
 window.addEventListener('online', () => { flush(); render(); });
 window.addEventListener('offline', () => render());
 
 /* ---------- démarrage ---------- */
 function applyDeepLink() {
   const v = new URLSearchParams(location.search).get('v');
-  if (v === 'bilan') V = { tab: 'today', sub: { type: 'bilan' } };
-  else if (v === 'coach') V = { tab: 'coach', sub: null };
-  else if (v === 'today') V = { tab: 'today', sub: null };
+  if (v === 'bilan') V = { tab: 'today', sub: { type: 'bilan' } }; else if (v) V = { tab: 'today', sub: null };
   if (v) history.replaceState(null, '', '/');
 }
 async function startSession() {
   S = migrate(LS.get(lsKey()) || defaultState()); lastSync = LS.get(lsKey() + '-sync') || 0;
-  applyDeepLink(); render(); await pull(); checkPush();
+  applyDeepLink(); render(); await pull(); checkPush().then(() => { if (V.tab === 'settings') render(); });
 }
 (async function boot() {
   if ('serviceWorker' in navigator) {

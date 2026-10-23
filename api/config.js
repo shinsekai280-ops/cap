@@ -5,6 +5,5 @@ export default function handler(req, res) {
     supabaseUrl: process.env.SUPABASE_URL || null,
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || null,
     vapidPublicKey: process.env.VAPID_PUBLIC_KEY || null,
-    ai: !!process.env.ANTHROPIC_API_KEY,
   });
 }
