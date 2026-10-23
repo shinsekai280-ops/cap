@@ -35,6 +35,8 @@ export function dueMessages(S, sent) {
     const lines = ['Règle d’or : 1 page de Coran'];
     if (plan.pratique) lines.push(`Pratique ${set.pratique} : ${plan.pratique.name}`);
     if (plan.video) lines.push(`Vidéo ${set.video} : ${plan.video.name}`);
+    const rdv = C.remindersOn(S, t).filter((r) => r.time);
+    if (rdv.length) lines.push('RDV : ' + rdv.map((r) => `${r.time} ${r.title}`).join(', '));
     lines.push(`${n} tâche${n > 1 ? 's' : ''} pour tes projets`);
     msgs.push({ key: 'morning:' + t, title: 'Ta journée', body: lines.join('\n'), url: '/' });
   }
@@ -63,7 +65,26 @@ export function dueMessages(S, sent) {
     }
   }
 
-  // 5. Soir : bilan + règle d'or si pas validée
+  // 5. Rappels / rendez-vous programmés (jusqu'à 1 semaine à l'avance)
+  if (set.notif.rdv !== false) {
+    for (let i = 0; i <= 8; i++) {
+      const k = C.addDays(t, i);
+      for (const r of C.remindersOn(S, k)) {
+        if (!r.time) continue;
+        const occ = at(k, r.time);
+        for (const off of r.alerts?.length ? r.alerts : [0]) {
+          const diff = (N - new Date(occ.getTime() - off * 60000)) / 60000;
+          const key = `rem:${r.id}:${k}:${off}`;
+          if (diff >= 0 && diff < WINDOW && !sent.has(key)) {
+            const when = k === t ? "aujourd'hui" : k === C.addDays(t, 1) ? 'demain' : C.frDate(k);
+            msgs.push({ key, title: r.title, body: (off < 1440 ? `${C.inLabel(off)} · à ${r.time}` : `${when.charAt(0).toUpperCase() + when.slice(1)} à ${r.time}`) + (r.note ? `\n${r.note}` : ''), url: '/' });
+          }
+        }
+      }
+    }
+  }
+
+  // 6. Soir : bilan + règle d'or si pas validée
   if (set.notif.evening && inWindow(set.evening) && !sent.has('evening:' + t) && !D.bilan) {
     msgs.push({ key: 'evening:' + t, title: D.coran ? 'Bilan du soir 🌙' : 'Ta page de Coran 🌙', body: D.coran ? 'Fais le point sur ta journée en 1 minute.' : 'Tu n’as pas encore validé ta règle d’or : 1 page de Coran.', url: '/?v=bilan' });
   }

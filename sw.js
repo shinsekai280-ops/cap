@@ -1,5 +1,5 @@
 // Service worker CAP : notifications + fonctionnement hors ligne
-const CACHE = 'cap-v3';
+const CACHE = 'cap-v4';
 const SHELL = ['/', '/app.js', '/vendor/supabase.js', '/lib/shared.js', '/manifest.webmanifest', '/icon-192.png', '/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {})); self.skipWaiting(); });

@@ -1,5 +1,5 @@
 import { createClient } from '/vendor/supabase.js';
-import { dkey, pk, addDays, frDate, daysBetween, rid, rel, monday, DAYS, st, defaultState, migrate, proj, theme, curStep, lastLog, pPct, planFor, tasksFor, coranStreak, weekday } from '/lib/shared.js';
+import { dkey, pk, addDays, frDate, daysBetween, rid, rel, monday, DAYS, st, defaultState, migrate, proj, theme, curStep, lastLog, pPct, planFor, tasksFor, coranStreak, weekday, remindersOn, nextOccurrence, ALERTS, REPEAT, alertShort } from '/lib/shared.js';
 
 /* ---------- utilitaires ---------- */
 const $ = (s) => document.querySelector(s);
@@ -29,6 +29,7 @@ const P = {
   ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
   warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.4"/>', coin: '<circle cx="12" cy="12" r="9"/><path d="M14.5 9.5c-.5-1-1.5-1.5-2.5-1.5-1.5 0-2.5.8-2.5 2s1 1.7 2.5 2 2.5.8 2.5 2-1 2-2.5 2c-1 0-2-.5-2.5-1.5M12 6.5V8M12 16v1.5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
 };
 const ic = (n, c = 'ico') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
@@ -38,7 +39,7 @@ const chk = (on, act, attrs, col) => `<button class="chk ${on ? 'on' : ''} ${col
 
 /* ---------- état & synchro ---------- */
 let S = null, sb = null, session = null, cfg = null, saveT = null, dirty = false, lastSync = 0, saving = false;
-let V = { tab: 'today', sub: null }, SH = null; const BUSY = {};
+let V = { tab: 'today', sub: null }, SH = null; const CAL = { mode: 'week', k: null }; const BUSY = {};
 const uid = () => session?.user?.id;
 const lsKey = () => 'cap3-' + (uid() || 'local');
 const day = (k) => (S.days[k] ??= {});
@@ -88,20 +89,30 @@ function evolveCard(kind, th, k) {
   ${chk(on, 'evolve', `data-kind="${kind}" data-id="${th.id}" data-k="${k}"`, 'g')}
  </div>`;
 }
-function vDay(k) {
-  const t = today(); const isToday = k === t; const D = S.days[k] || {}; const plan = planFor(S, k); const h = new Date().getHours(); const sk = coranStreak(S);
-  const head = isToday
-    ? `<div class="head"><div class="head-l"><span class="eyebrow">${esc(cap(frDate(k)))}</span><h1>${h < 5 || h >= 18 ? 'Bonsoir' : 'Bonjour'} 👋</h1></div>${sk ? `<span class="streak">🔥 ${sk} jour${sk > 1 ? 's' : ''}</span>` : ''}</div>`
-    : `<button class="back" data-act="back">${ic('back')} Semaine</button><div class="head"><div class="head-l"><span class="eyebrow">${k < t ? 'Jour passé' : 'Jour à venir'}</span><h1>${esc(cap(frDate(k)))}</h1></div></div>`;
-  return `${head}
- ${!navigator.onLine ? `<div class="alert">${ic('warn', 'ico-s')} Hors ligne : tes changements seront envoyés au retour du réseau.</div>` : ''}
+function alertsText(r) { return (r.alerts?.length ? r.alerts : [0]).map(alertShort).join(', '); }
+function rdvBlock(k) {
+  const rs = remindersOn(S, k); if (!rs.length) return '';
+  return `<div class="sec"><div class="sec-h"><h2 class="sh">${ic('clock', 'ico-s')} Rendez-vous & rappels</h2><button class="link" data-act="newRem" data-k="${k}">+ Rappel</button></div><div class="list">${rs.map((r) => `<button class="row rrow" data-act="editRem" data-id="${r.id}"><span class="rt">${r.time || '—'}</span><div class="txt"><span class="t">${esc(r.title)}</span><span class="s">${esc([r.note, '🔔 ' + alertsText(r), r.repeat && r.repeat !== 'none' ? REPEAT[r.repeat] : ''].filter(Boolean).join(' · '))}</span></div>${ic('fwd', 'ico-s')}</button>`).join('')}</div></div>`;
+}
+function vDayBody(k) {
+  const t = today(); const isToday = k === t; const D = S.days[k] || {}; const plan = planFor(S, k); const h = new Date().getHours();
+  return `${!navigator.onLine ? `<div class="alert">${ic('warn', 'ico-s')} Hors ligne : tes changements seront envoyés au retour du réseau.</div>` : ''}
  <button class="gold ${D.coran ? 'on' : ''}" data-act="coran" data-k="${k}"><span class="gold-ic">${D.coran ? ic('check') : ic('book')}</span><div class="txt"><span class="k">Règle d’or</span><span class="pn">1 page de Coran</span><span class="s">${D.coran ? 'Validée ✓' : 'Touche pour valider'}</span></div></button>
- <div class="sec"><div class="sec-h"><h2 class="sh">${ic('coin', 'ico-s')} Ce qui rapporte</h2></div>${S.projects.map((p) => projBlock(p, k)).join('')}</div>
+ ${rdvBlock(k)}
+ <div class="sec"><div class="sec-h"><h2 class="sh">${ic('coin', 'ico-s')} Ce qui rapporte</h2></div>${S.projects.map((p) => projBlock(p, k)).join('')}<button class="btn ghost addproj" data-act="newProject">${ic('plus', 'ico-s')} Ajouter un projet</button></div>
  <div class="sec"><div class="sec-h"><h2 class="sh">${ic('up', 'ico-s')} Ce qui me fait évoluer</h2><button class="link" data-act="open" data-t="week">Semaine type</button></div>${evolveCard('pratique', plan.pratique, k)}${evolveCard('video', plan.video, k)}</div>
  ${isToday ? `<button class="card coach" style="text-align:left;width:100%;${h >= 18 ? '' : 'border-color:var(--line);background:var(--card)'}" data-act="open" data-t="bilan">${ic('moon', 'ico spark')}<div class="coach-body"><span class="coach-msg">Bilan du soir</span><span class="coach-sub">${D.bilan ? 'Journée validée ✓' : 'Fais le point sur ta journée en 1 minute.'}</span></div></button>` : ''}`;
 }
+function vToday() {
+  const k = today(); const h = new Date().getHours(); const sk = coranStreak(S);
+  return `<div class="head"><div class="head-l"><span class="eyebrow">${esc(cap(frDate(k)))}</span><h1>${h < 5 || h >= 18 ? 'Bonsoir' : 'Bonjour'} 👋</h1></div>${sk ? `<span class="streak">🔥 ${sk} jour${sk > 1 ? 's' : ''}</span>` : ''}</div>${vDayBody(k)}`;
+}
 
-/* ---------- vue : semaine (calendrier) ---------- */
+/* ---------- vue : planning (année / mois / semaine / jour) ---------- */
+const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+const ymKey = (k) => k.slice(0, 7);
+const firstOfMonth = (k) => k.slice(0, 8) + '01';
+function shiftMonth(k, n) { const d = pk(firstOfMonth(k)); d.setMonth(d.getMonth() + n); return dkey(d); }
 function dayScore(k) {
   const D = S.days[k] || {}; const plan = planFor(S, k); const t = today();
   let tot = 1 + S.routines.length, dn = (D.coran ? 1 : 0) + (D.routines || []).length;
@@ -109,22 +120,71 @@ function dayScore(k) {
   ['pratique', 'video'].forEach((x) => { if (plan[x]) { tot++; if (D.evolve?.[x]) dn++; } });
   return { tot, dn };
 }
-function vWeek() {
-  const t = today(); const start = addDays(monday(t), (V.weekOff || 0) * 7);
-  const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
-  const label = `${frDate(days[0], { day: 'numeric', month: 'short' })} – ${frDate(days[6], { day: 'numeric', month: 'short' })}`;
-  return `<div class="head"><div class="head-l"><h1>Semaine</h1><span class="eyebrow">${esc(label)}</span></div><div class="wnav"><button class="iconbtn" data-act="wk" data-n="-1" aria-label="Semaine précédente">${ic('back')}</button><button class="iconbtn" data-act="wk" data-n="1" aria-label="Semaine suivante">${ic('fwd')}</button></div></div>
- ${V.weekOff ? `<button class="link" data-act="wk" data-n="0" style="align-self:flex-start">Revenir à cette semaine</button>` : ''}
- <div class="week">${days.map((k) => {
+const rdvOf = (k) => remindersOn(S, k).filter((r) => r.repeat !== 'daily');
+function calLabel() {
+  const k = CAL.k;
+  if (CAL.mode === 'year') return String(pk(k).getFullYear());
+  if (CAL.mode === 'month') return cap(MONTHS[pk(k).getMonth()]) + ' ' + pk(k).getFullYear();
+  if (CAL.mode === 'week') { const a = monday(k), b = addDays(a, 6); return `${frDate(a, { day: 'numeric', month: 'short' })} – ${frDate(b, { day: 'numeric', month: 'short', year: 'numeric' })}`; }
+  return cap(frDate(k, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+}
+function calIsNow() {
+  const k = CAL.k, t = today();
+  return CAL.mode === 'year' ? k.slice(0, 4) === t.slice(0, 4) : CAL.mode === 'month' ? ymKey(k) === ymKey(t) : CAL.mode === 'week' ? monday(k) === monday(t) : k === t;
+}
+function vPlanning() {
+  CAL.k ??= today();
+  const modes = [['year', 'Année'], ['month', 'Mois'], ['week', 'Semaine'], ['day', 'Jour']];
+  const head = `<div class="head"><div class="head-l"><h1>Planning</h1></div><div class="wnav"><button class="iconbtn" data-act="open" data-t="reminders" aria-label="Mes rappels">${ic('bell')}</button><button class="btn sm" data-act="newRem" data-k="${CAL.mode === 'day' ? CAL.k : today()}">${ic('plus', 'ico-s')} Rappel</button></div></div>
+ <div class="seg calseg">${modes.map(([m, l]) => `<button class="${CAL.mode === m ? 'on' : ''}" data-act="calMode" data-v="${m}">${l}</button>`).join('')}</div>
+ <div class="calbar"><button class="iconbtn" data-act="calMove" data-n="-1" aria-label="Précédent">${ic('back')}</button><div class="callabel"><span>${esc(calLabel())}</span>${calIsNow() ? '' : `<button class="link" data-act="calToday">Revenir à aujourd’hui</button>`}</div><button class="iconbtn" data-act="calMove" data-n="1" aria-label="Suivant">${ic('fwd')}</button></div>`;
+  return head + { year: vYear, month: vMonth, week: vWeekList, day: () => vDayBody(CAL.k) }[CAL.mode]();
+}
+function vWeekList() {
+  const t = today(); const start = monday(CAL.k); const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  return `<div class="week">${days.map((k) => {
     const plan = planFor(S, k); const D = S.days[k] || {}; const past = k < t; const isT = k === t; const sc = dayScore(k);
-    const dated = S.projects.flatMap((p) => p.tasks.filter((x) => x.due === k).map((x) => ({ p, x })));
-    return `<button class="wday ${isT ? 'today' : ''} ${past ? 'past' : ''}" data-act="openDay" data-k="${k}">
+    const rd = remindersOn(S, k).filter((r) => r.time);
+    const dated = S.projects.flatMap((p) => p.tasks.filter((x) => x.due === k).map((x) => x.title));
+    return `<button class="wday ${isT ? 'today' : ''} ${past ? 'past' : ''}" data-act="calDay" data-k="${k}">
     <div class="wd"><span class="wdn">${DAYS[weekday(k)].slice(0, 3)}</span><span class="wdd">${pk(k).getDate()}</span></div>
     <div class="wbody"><div class="wtags">${plan.pratique ? `<span class="pill p-green">${esc(plan.pratique.name)}</span>` : ''}${plan.video ? `<span class="pill p-orange">${esc(plan.video.name)}</span>` : ''}</div>
-     ${dated.length ? `<span class="s">${dated.slice(0, 2).map(({ x }) => esc(x.title)).join(' · ')}${dated.length > 2 ? ` · +${dated.length - 2}` : ''}</span>` : ''}</div>
+     ${rd.length ? `<span class="s rdvline">${ic('clock', 'ico-xs')} ${rd.slice(0, 2).map((r) => esc(r.time + ' ' + r.title)).join(' · ')}${rd.length > 2 ? ` · +${rd.length - 2}` : ''}</span>` : ''}
+     ${dated.length ? `<span class="s">${dated.slice(0, 2).map(esc).join(' · ')}${dated.length > 2 ? ` · +${dated.length - 2}` : ''}</span>` : ''}</div>
     <div class="wst">${past || isT ? `<span class="wsc">${sc.dn}/${sc.tot}</span><span class="wcor ${D.coran ? 'on' : ''}">${D.coran ? ic('check', 'ico-xs') : ''}</span>` : ''}</div></button>`;
   }).join('')}</div>
  <button class="btn ghost" data-act="open" data-t="week">${ic('edit', 'ico-s')} Modifier la semaine type</button>`;
+}
+function vMonth() {
+  const t = today(); const first = firstOfMonth(CAL.k); const ym = ymKey(first); const start = monday(first);
+  const cells = []; for (let i = 0; i < 42; i++) { const k = addDays(start, i); if (i >= 35 && ymKey(k) !== ym) break; cells.push(k); }
+  const list = [];
+  for (let k = first; ymKey(k) === ym; k = addDays(k, 1)) rdvOf(k).forEach((r) => list.push({ k, r }));
+  return `<div class="mgrid">${['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d) => `<span class="mh">${d}</span>`).join('')}
+  ${cells.map((k) => { const D = S.days[k] || {}; const inM = ymKey(k) === ym; const rd = rdvOf(k).length; const tk = S.projects.some((p) => p.tasks.some((x) => x.due === k)); const sc = k <= t ? dayScore(k) : null;
+    return `<button class="mcell ${inM ? '' : 'out'} ${k === t ? 'today' : ''} ${D.coran ? 'cor' : ''}" data-act="calDay" data-k="${k}"><span class="mn">${pk(k).getDate()}</span><span class="mdots">${rd ? '<i class="dv"></i>' : ''}${tk ? '<i class="db"></i>' : ''}</span>${sc && inM ? `<span class="mbar"><i style="width:${Math.round((sc.dn / sc.tot) * 100)}%"></i></span>` : ''}</button>`; }).join('')}</div>
+ <div class="legend"><span><i class="lg cor"></i>Coran validé</span><span><i class="lg dv"></i>Rendez-vous</span><span><i class="lg db"></i>Tâche datée</span></div>
+ <div class="sec"><h2>Rendez-vous du mois</h2>${list.length ? `<div class="list">${list.map(({ k, r }) => `<button class="row rrow" data-act="editRem" data-id="${r.id}"><span class="rt">${pk(k).getDate()} ${MONTHS[pk(k).getMonth()].slice(0, 4)}.</span><div class="txt"><span class="t">${esc(r.title)}</span><span class="s">${esc([r.time, r.note].filter(Boolean).join(' · '))}</span></div>${ic('fwd', 'ico-s')}</button>`).join('')}</div>` : `<div class="card empty">Aucun rendez-vous ce mois-ci.</div>`}</div>`;
+}
+function vYear() {
+  const y = pk(CAL.k).getFullYear(); const t = today();
+  return `<div class="ygrid">${MONTHS.map((m, i) => {
+    const first = `${y}-${String(i + 1).padStart(2, '0')}-01`; const start = monday(first); const ym = ymKey(first);
+    const cells = []; for (let j = 0; j < 42; j++) { const k = addDays(start, j); if (j >= 35 && ymKey(k) !== ym) break; cells.push(k); }
+    const cor = cells.filter((k) => ymKey(k) === ym && S.days[k]?.coran).length;
+    return `<button class="ymonth ${ym === ymKey(t) ? 'now' : ''}" data-act="calMonth" data-k="${first}"><span class="ymn">${cap(m)}</span><span class="ydays">${cells.map((k) => `<i class="${ymKey(k) !== ym ? 'o' : ''} ${S.days[k]?.coran ? 'c' : ''} ${k === t ? 't' : ''} ${ymKey(k) === ym && rdvOf(k).length ? 'r' : ''}"></i>`).join('')}</span><span class="ys">${cor ? `${cor} j. Coran` : '&nbsp;'}</span></button>`;
+  }).join('')}</div>
+ <div class="legend"><span><i class="lg cor"></i>Coran validé</span><span><i class="lg dv"></i>Rendez-vous</span></div>`;
+}
+function vReminders() {
+  const t = today(); const all = (S.reminders || []).map((r) => ({ r, n: nextOccurrence(r, t) }));
+  const up = all.filter((x) => x.n && (x.n > t || (x.n === t && (!x.r.time || x.r.time >= new Date().toTimeString().slice(0, 5)) ) || (x.r.repeat && x.r.repeat !== 'none'))).sort((a, b) => (a.n + (a.r.time || '')).localeCompare(b.n + (b.r.time || '')));
+  const past = all.filter((x) => !up.includes(x)).sort((a, b) => b.r.date.localeCompare(a.r.date));
+  const row = ({ r, n }) => `<button class="row rrow" data-act="editRem" data-id="${r.id}"><span class="rt">${r.time || '—'}</span><div class="txt"><span class="t">${esc(r.title)}</span><span class="s">${esc([dayLabel(n || r.date), r.repeat && r.repeat !== 'none' ? REPEAT[r.repeat] : '', '🔔 ' + alertsText(r)].filter(Boolean).join(' · '))}</span></div>${ic('fwd', 'ico-s')}</button>`;
+  return `<button class="back" data-act="back">${ic('back')} Planning</button>
+ <div class="head"><div class="head-l"><h1>Mes rappels</h1><span class="eyebrow">Rendez-vous et rappels programmés</span></div><button class="btn sm" data-act="newRem" data-k="${t}">${ic('plus', 'ico-s')} Rappel</button></div>
+ <div class="sec"><h2>À venir</h2>${up.length ? `<div class="list">${up.map(row).join('')}</div>` : `<div class="card empty">Aucun rappel programmé. Touche « + Rappel » pour en créer un.</div>`}</div>
+ ${past.length ? `<div class="sec"><h2>Passés</h2><div class="list">${past.slice(0, 50).map(row).join('')}</div></div>` : ''}`;
 }
 function vWeekType() {
   const pr = S.themes.filter((x) => x.type === 'pratique'), vi = S.themes.filter((x) => x.type === 'video');
@@ -258,6 +318,7 @@ function vSettings() {
   ${tog('morning', 'Résumé du matin', 'Ta règle d’or, ta pratique, ta vidéo et tes tâches')}
   ${tog('tasks', 'Tâches', 'Posts DYCOM, checks, et tâches avec une heure')}
   ${tog('evolve', 'Pratique et vidéo', 'À l’heure choisie, si ce n’est pas fait')}
+  ${tog('rdv', 'Rendez-vous et rappels', 'Selon les alertes choisies pour chaque rappel')}
   ${tog('evening', 'Bilan du soir', 'Et rappel de la page de Coran si pas validée')}
  </div></div>
  <button class="btn ghost" data-act="open" data-t="week">${ic('cal', 'ico-s')} Modifier la semaine type</button>
@@ -273,17 +334,27 @@ function vLogin() {
 /* ---------- feuilles (ajout rapide, journal, édition) ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 function micBtn() { return SR ? `<button type="button" class="listen ${SH.listening ? 'on' : ''}" data-act="dictate"><span class="pulse">${ic('mic')}</span><span>${SH.listening ? 'Je t’écoute… touche pour arrêter' : 'Touche pour parler'}</span></button>` : ''; }
+function addTabs(cur) { return `<div class="seg"><button class="${cur === 'add' ? 'on' : ''}" data-act="sMode" data-v="add">Tâche</button><button class="${cur === 'rem' ? 'on' : ''}" data-act="sMode" data-v="rem">Rappel / RDV</button></div>`; }
 function sheetHtml() {
   if (!SH) return ''; const s = SH; let b = '';
   const close = `<button class="x" data-act="sheetClose" aria-label="Fermer">${ic('x')}</button>`;
   if (s.mode === 'add') {
     const t = today();
-    b = `<div class="sheet-h"><h2>Nouvelle tâche</h2>${close}</div>${micBtn()}
+    b = `<div class="sheet-h"><h2>Nouvelle tâche</h2>${close}</div>${addTabs('add')}${micBtn()}
    <textarea class="inp" id="cap-text" style="min-height:72px" placeholder="Ce qui te vient en tête…">${esc(s.text || '')}</textarea>
    <div class="field"><span class="label">Projet</span><div class="chips">${S.projects.map((p) => `<button class="${s.pid === p.id ? 'on' : ''}" style="--c:var(--${p.color})" data-act="sPid" data-v="${p.id}">${esc(p.name)}</button>`).join('')}</div></div>
    <div class="field"><span class="label">Quand</span><div class="chips">${[['', 'Sans date'], [t, "Aujourd'hui"], [addDays(t, 1), 'Demain']].map(([v, l]) => `<button class="${(s.due ?? t) === v ? 'on' : ''}" data-act="sDue" data-v="${v}">${l}</button>`).join('')}</div>
     <div class="addf"><input class="inp" type="date" id="s-date" value="${esc(s.due || '')}" aria-label="Autre date"><input class="inp tm" type="time" id="s-time" value="${esc(s.time || '')}" aria-label="Heure du rappel"></div><span class="hint">${ic('bell', 'ico-xs')} Ajoute une heure pour recevoir un rappel.</span></div>
    <button class="btn" data-act="sAdd">Ajouter</button>`;
+  } else if (s.mode === 'rem') {
+    b = `<div class="sheet-h"><h2>${s.id ? 'Modifier le rappel' : 'Nouveau rappel'}</h2>${close}</div>${s.id ? '' : addTabs('rem')}
+   <div class="field"><label class="label" for="rm-t">Titre</label><input class="inp" id="rm-t" value="${esc(s.title || '')}" placeholder="Ex : RDV coiffeur, appel client…"></div>
+   <div class="addf"><div class="field" style="flex:1;min-width:0"><label class="label" for="rm-d">Date</label><input class="inp" type="date" id="rm-d" value="${esc(s.date || '')}"></div><div class="field"><label class="label" for="rm-h">Heure</label><input class="inp tm" type="time" id="rm-h" value="${esc(s.time || '')}"></div></div>
+   <div class="field"><span class="label">Me prévenir (plusieurs choix possibles)</span><div class="chips">${ALERTS.map(([m, l]) => `<button class="${s.alerts.includes(m) ? 'on' : ''}" data-act="rmAlert" data-v="${m}">${m === 0 ? l : l + ' avant'}</button>`).join('')}</div></div>
+   <div class="field"><span class="label">Répéter</span><div class="chips">${Object.entries(REPEAT).map(([k, l]) => `<button class="${(s.repeat || 'none') === k ? 'on' : ''}" data-act="rmRepeat" data-v="${k}">${l}</button>`).join('')}</div></div>
+   <div class="field"><label class="label" for="rm-n">Note (optionnel)</label><input class="inp" id="rm-n" value="${esc(s.note || '')}" placeholder="Lieu, numéro, détail…"></div>
+   <button class="btn" data-act="rmSave">${s.id ? 'Enregistrer' : 'Programmer le rappel'}</button>
+   ${s.id ? (s.confirmDel ? `<div class="btn-row"><button class="btn ghost sm" data-act="rmUndel">Annuler</button><button class="btn red sm" data-act="rmDel">Supprimer</button></div>` : `<button class="danger" data-act="rmAskDel">Supprimer ce rappel</button>`) : ''}`;
   } else if (s.mode === 'log') {
     const x = theme(S, s.id); const i = x.kind === 'steps' ? curStep(x) : -1;
     b = `<div class="sheet-h"><h2>${x.kind === 'journal' ? 'Vidéo' : 'Session'} · ${esc(x.name)}</h2>${close}</div>`;
@@ -318,9 +389,9 @@ function render() {
   if (!S) return;
   $('#nav').hidden = false;
   const sub = V.sub;
-  const h = sub ? { day: () => vDay(sub.k), project: vProject, theme: vTheme, bilan: vBilan, week: vWeekType }[sub.type](sub) : { today: () => vDay(today()), week: vWeek, evolve: vEvolve, settings: vSettings }[V.tab]();
+  const h = sub ? { project: vProject, theme: vTheme, bilan: vBilan, week: vWeekType, reminders: vReminders }[sub.type](sub) : { today: vToday, plan: vPlanning, evolve: vEvolve, settings: vSettings }[V.tab]();
   $('#app').innerHTML = h;
-  const tabs = [['today', 'Aujourd’hui', 'home'], ['week', 'Semaine', 'cal'], null, ['evolve', 'Évoluer', 'up'], ['settings', 'Réglages', 'gear']];
+  const tabs = [['today', 'Aujourd’hui', 'home'], ['plan', 'Planning', 'cal'], null, ['evolve', 'Évoluer', 'up'], ['settings', 'Réglages', 'gear']];
   $('#nav').innerHTML = `<div class="nav-in">${tabs.map((x) => (x ? `<button class="tab ${V.tab === x[0] && !sub ? 'on' : ''}" data-act="tab" data-v="${x[0]}">${ic(x[2])}<span>${x[1]}</span></button>` : `<button class="mic" data-act="add" aria-label="Ajouter une tâche">${ic('plus')}</button>`)).join('')}</div>`;
   $('#sheet').innerHTML = sheetHtml();
 }
@@ -328,8 +399,8 @@ function go(v) { V = v; render(); window.scrollTo(0, 0); }
 const open = (type, extra = {}) => { const prev = V.sub; go({ tab: V.tab, sub: { type, ...extra }, prev }); };
 const scrollBottom = () => requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
 let toastT; function toast(m) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2600); }
-function readSheet() { const g = (id) => document.getElementById(id)?.value; if (!SH) return; for (const [id, k] of [['cap-text', 'text'], ['lg-t', 'title'], ['lg-u', 'url'], ['lg-n', 'n'], ['s-time', 'time']]) { const v = g(id); if (v !== undefined) SH[k] = v; } }
-function openSheet(s) { SH = s; render(); setTimeout(() => document.getElementById(s.focus || 'cap-text')?.focus(), 60); }
+function readSheet() { const g = (id) => document.getElementById(id)?.value; if (!SH) return; for (const [id, k] of [['cap-text', 'text'], ['lg-t', 'title'], ['lg-u', 'url'], ['lg-n', 'n'], ['s-time', 'time'], ['rm-t', 'title'], ['rm-d', 'date'], ['rm-h', 'time'], ['rm-n', 'note']]) { const v = g(id); if (v !== undefined) SH[k] = v; } }
+function openSheet(s) { SH = s; render(); if (s.focus !== 'none') setTimeout(() => document.getElementById(s.focus || 'cap-text')?.focus(), 60); }
 function keep() { const o = {}; document.querySelectorAll('.sheet input').forEach((i) => { if (i.id) o[i.id] = i.value; }); return o; }
 function restore(o) { for (const [k, v] of Object.entries(o)) { const el = document.getElementById(k); if (el) el.value = v; } }
 function rerenderSheet(fn, skip) { const o = keep(); if (skip) delete o[skip]; readSheet(); fn(); render(); restore(o); }
@@ -354,9 +425,32 @@ function setTask(x, p, done, k) { x.done = done; x.doneAt = done ? k || today() 
 const A = {
   tab: (e) => go({ tab: e.dataset.v, sub: null }),
   open: (e) => open(e.dataset.t, { id: e.dataset.id }),
-  openDay: (e) => { if (e.dataset.k === today()) return go({ tab: 'today', sub: null }); open('day', { k: e.dataset.k }); },
+  calMode: (e) => { CAL.mode = e.dataset.v; render(); },
+  calMove: (e) => { const n = +e.dataset.n; CAL.k = CAL.mode === 'day' ? addDays(CAL.k, n) : CAL.mode === 'week' ? addDays(CAL.k, 7 * n) : CAL.mode === 'month' ? shiftMonth(CAL.k, n) : shiftMonth(CAL.k, 12 * n); render(); window.scrollTo(0, 0); },
+  calToday: () => { CAL.k = today(); render(); },
+  calDay: (e) => { CAL.mode = 'day'; CAL.k = e.dataset.k; render(); window.scrollTo(0, 0); },
+  calMonth: (e) => { CAL.mode = 'month'; CAL.k = e.dataset.k; render(); window.scrollTo(0, 0); },
+  newProject: () => openSheet({ mode: 'project', focus: 'pf-n' }),
+  newRem: (e) => openSheet({ mode: 'rem', date: e.dataset.k || today(), alerts: [15], repeat: 'none', focus: 'rm-t' }),
+  editRem: (e) => { const r = S.reminders.find((x) => x.id === e.dataset.id); if (r) openSheet({ mode: 'rem', id: r.id, title: r.title, date: r.date, time: r.time, note: r.note, alerts: [...(r.alerts || [])], repeat: r.repeat || 'none', focus: 'none' }); },
+  rmAlert: (e) => rerenderSheet(() => { const m = +e.dataset.v; const i = SH.alerts.indexOf(m); i < 0 ? SH.alerts.push(m) : SH.alerts.splice(i, 1); SH.alerts.sort((a, b) => a - b); }),
+  rmRepeat: (e) => rerenderSheet(() => { SH.repeat = e.dataset.v; }),
+  rmAskDel: () => rerenderSheet(() => { SH.confirmDel = true; }), rmUndel: () => rerenderSheet(() => { SH.confirmDel = false; }),
+  rmDel: () => { S.reminders = S.reminders.filter((x) => x.id !== SH.id); SH = null; save(); render(); toast('Rappel supprimé'); },
+  rmSave: () => {
+    readSheet(); const title = (SH.title || '').trim();
+    if (!title) return toast('Donne un titre au rappel.'); if (!SH.date) return toast('Choisis une date.'); if (!SH.time) return toast('Choisis une heure.');
+    const o = { title, date: SH.date, time: SH.time, note: (SH.note || '').trim(), alerts: SH.alerts.length ? SH.alerts : [0], repeat: SH.repeat || 'none' };
+    S.reminders ??= [];
+    if (SH.id) Object.assign(S.reminders.find((x) => x.id === SH.id), o); else S.reminders.push({ id: rid(), ...o });
+    SH = null; save(); render(); toast(pushState === 'on' || pushState === 'unknown' ? 'Rappel programmé ✓' : 'Rappel programmé ✓ Active les notifications dans Réglages.');
+  },
+  sMode: (e) => {
+    readSheet(); const v = e.dataset.v; if (v === SH.mode) return;
+    SH = v === 'rem' ? { mode: 'rem', title: SH.text || '', date: SH.due || today(), time: SH.time || '', alerts: [15], repeat: 'none', focus: 'rm-t' } : { mode: 'add', text: SH.title || '', pid: S.projects[0]?.id, due: SH.date || today(), time: SH.time || '' };
+    render();
+  },
   back: () => { goBack(); window.scrollTo(0, 0); },
-  wk: (e) => { V.weekOff = +e.dataset.n === 0 ? 0 : (V.weekOff || 0) + +e.dataset.n; render(); },
   coran: (e) => { const D = day(e.dataset.k); D.coran = !D.coran; if (D.coran && e.dataset.k === today()) toast('Règle d’or validée ✓'); save(); render(); },
   routine: (e) => { const D = day(e.dataset.k); D.routines ??= []; const i = D.routines.indexOf(e.dataset.id); i < 0 ? D.routines.push(e.dataset.id) : D.routines.splice(i, 1); save(); render(); },
   task: (e) => { const f = findTask(e.dataset.id); if (!f) return; setTask(f.t, f.p, !f.t.done, e.dataset.k); save(); render(); },
@@ -383,7 +477,7 @@ const A = {
   linkDel: (e) => { theme(S, V.sub.id).links.splice(+e.dataset.i, 1); save(); render(); },
   logDel: (e) => { theme(S, V.sub.id).logs.splice(+e.dataset.i, 1); save(); render(); },
   log: (e) => { const x = theme(S, e.dataset.id); openSheet({ mode: 'log', id: x.id, k: today(), focus: x.kind === 'journal' ? 'lg-t' : 'cap-text' }); },
-  add: () => { const pid = V.sub?.type === 'project' ? V.sub.id : S.projects[0]?.id; openSheet({ mode: 'add', pid, due: V.sub?.type === 'day' ? V.sub.k : today() }); },
+  add: () => { const pid = V.sub?.type === 'project' ? V.sub.id : S.projects[0]?.id; openSheet({ mode: 'add', pid, due: V.tab === 'plan' && CAL.mode === 'day' && !V.sub ? CAL.k : today() }); },
   sPid: (e) => rerenderSheet(() => { SH.pid = e.dataset.v; }),
   sDue: (e) => rerenderSheet(() => { SH.due = e.dataset.v; }, 's-date'),
   sAdd: () => {
