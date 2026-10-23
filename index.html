@@ -302,6 +302,19 @@ label.row{cursor:pointer}
 .ydays i.r:after{content:"";position:absolute;inset:auto 0 -1px 0;height:2px;background:var(--violet);border-radius:2px}
 .ydays i.t{outline:1.5px solid var(--fg)}
 .ys{font-size:11px;color:var(--mut)}
+
+.pdone{display:flex;align-items:center;gap:6px;padding:10px 14px;border-top:1px solid var(--line);font-size:13px;color:var(--green);font-weight:600}
+.card.pdone{border-top:1px solid var(--line)}
+.donebox{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+.done-h{display:flex;align-items:center;gap:10px;width:100%;padding:14px;text-align:left}
+.done-h .t{flex:1;font-weight:600;color:var(--mut)}
+.done-h svg{color:var(--mut)}
+.dck{color:var(--green)!important;display:grid;place-items:center}
+.dck svg{color:var(--green)}
+.done-l .row{border-top:1px solid var(--line)}
+.done-l .t{text-decoration:line-through;color:var(--mut)}
+.undo{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:var(--mut);flex:none}
+.undo:hover{color:var(--fg);background:var(--card2)}
 @media (prefers-reduced-motion:reduce){.listen.on .pulse{animation:none}}
 </style>
 </head>

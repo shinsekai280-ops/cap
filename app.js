@@ -30,6 +30,8 @@ const P = {
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
   warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.4"/>', coin: '<circle cx="12" cy="12" r="9"/><path d="M14.5 9.5c-.5-1-1.5-1.5-2.5-1.5-1.5 0-2.5.8-2.5 2s1 1.7 2.5 2 2.5.8 2.5 2-1 2-2.5 2c-1 0-2-.5-2.5-1.5M12 6.5V8M12 16v1.5"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  down: '<path d="M6 9l6 6 6-6"/>', up2: '<path d="M6 15l6-6 6 6"/>',
   star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
 };
 const ic = (n, c = 'ico') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
@@ -39,7 +41,7 @@ const chk = (on, act, attrs, col) => `<button class="chk ${on ? 'on' : ''} ${col
 
 /* ---------- état & synchro ---------- */
 let S = null, sb = null, session = null, cfg = null, saveT = null, dirty = false, lastSync = 0, saving = false;
-let V = { tab: 'today', sub: null }, SH = null; const CAL = { mode: 'week', k: null }; const BUSY = {};
+let V = { tab: 'today', sub: null }, SH = null; const doneOpen = () => !!LS.get('cap-done-open'); const CAL = { mode: 'week', k: null }; const BUSY = {};
 const uid = () => session?.user?.id;
 const lsKey = () => 'cap3-' + (uid() || 'local');
 const day = (k) => (S.days[k] ??= {});
@@ -75,7 +77,7 @@ function projBlock(p, k) {
   const dn = items.filter((i) => i.done).length;
   return `<div class="proj" style="--c:var(--${p.color});--cs:var(--${p.color}-soft)">
   <button class="proj-h" data-act="open" data-t="project" data-id="${p.id}"><span class="dotc"></span><div class="txt"><span class="pn">${esc(p.name)}</span><span class="s">${esc(p.sub)}</span></div><span class="count">${dn} / ${items.length}</span>${ic('fwd', 'ico-s')}</button>
-  ${items.length ? `<div class="plist">${items.map((i) => i.html).join('')}</div>` : ''}
+  ${items.some((i) => !i.done) ? `<div class="plist">${items.filter((i) => !i.done).map((i) => i.html).join('')}</div>` : items.length ? `<div class="pdone">${ic('check', 'ico-xs')} Tout est fait</div>` : ''}
   <form class="addf qadd" data-form="quickTask" data-id="${p.id}" data-k="${k}"><input class="inp" name="t" id="qa-${p.id}" placeholder="+ Ajouter une tâche" autocomplete="off" enterkeyhint="done"><input class="inp tm" type="time" name="h" id="qh-${p.id}" aria-label="Heure du rappel (optionnel)"><button class="iconbtn" aria-label="Ajouter">${ic('plus')}</button></form>
  </div>`;
 }
@@ -94,13 +96,30 @@ function rdvBlock(k) {
   const rs = remindersOn(S, k); if (!rs.length) return '';
   return `<div class="sec"><div class="sec-h"><h2 class="sh">${ic('clock', 'ico-s')} Rendez-vous & rappels</h2><button class="link" data-act="newRem" data-k="${k}">+ Rappel</button></div><div class="list">${rs.map((r) => `<button class="row rrow" data-act="editRem" data-id="${r.id}"><span class="rt">${r.time || '—'}</span><div class="txt"><span class="t">${esc(r.title)}</span><span class="s">${esc([r.note, '🔔 ' + alertsText(r), r.repeat && r.repeat !== 'none' ? REPEAT[r.repeat] : ''].filter(Boolean).join(' · '))}</span></div>${ic('fwd', 'ico-s')}</button>`).join('')}</div></div>`;
 }
+function doneItems(k) {
+  const D = S.days[k] || {}; const t = today(); const plan = planFor(S, k); const out = [];
+  if (D.coran) out.push({ label: '1 page de Coran', meta: 'Règle d’or', attrs: `data-act="coran" data-k="${k}"` });
+  S.projects.forEach((p) => {
+    S.routines.filter((r) => r.projectId === p.id && (D.routines || []).includes(r.id)).forEach((r) => out.push({ label: r.title, meta: p.name + (r.time ? ' · ' + r.time : ''), attrs: `data-act="routine" data-id="${r.id}" data-k="${k}"`, c: p.color }));
+    tasksFor(p, k, t).filter((x) => x.done).forEach((x) => out.push({ label: x.title, meta: p.name, attrs: `data-act="task" data-id="${x.id}" data-k="${k}"`, c: p.color }));
+  });
+  ['pratique', 'video'].forEach((kind) => { if (plan[kind] && D.evolve?.[kind]) out.push({ label: `${kind === 'pratique' ? 'Pratique' : 'Vidéo'} : ${plan[kind].name}`, meta: 'Évoluer', attrs: `data-act="evolve" data-kind="${kind}" data-id="${plan[kind].id}" data-k="${k}"`, c: TCOL[kind] }); });
+  return out;
+}
+function doneBlock(k) {
+  const it = doneItems(k); if (!it.length) return '';
+  const openD = doneOpen();
+  return `<div class="donebox"><button class="done-h" data-act="toggleDone" aria-expanded="${openD}"><span class="dck">${ic('check', 'ico-s')}</span><span class="t">Déjà validé (${it.length})</span>${ic(openD ? 'up2' : 'down', 'ico-s')}</button>
+  ${openD ? `<div class="done-l">${it.map((x) => `<div class="row done"><span class="chk g on">${ic('check')}</span><div class="txt"><span class="t">${esc(x.label)}</span><span class="s">${esc(x.meta)}</span></div><button class="undo" ${x.attrs} aria-label="Annuler">${ic('undo', 'ico-s')}</button></div>`).join('')}</div>` : ''}</div>`;
+}
 function vDayBody(k) {
   const t = today(); const isToday = k === t; const D = S.days[k] || {}; const plan = planFor(S, k); const h = new Date().getHours();
   return `${!navigator.onLine ? `<div class="alert">${ic('warn', 'ico-s')} Hors ligne : tes changements seront envoyés au retour du réseau.</div>` : ''}
- <button class="gold ${D.coran ? 'on' : ''}" data-act="coran" data-k="${k}"><span class="gold-ic">${D.coran ? ic('check') : ic('book')}</span><div class="txt"><span class="k">Règle d’or</span><span class="pn">1 page de Coran</span><span class="s">${D.coran ? 'Validée ✓' : 'Touche pour valider'}</span></div></button>
+ ${D.coran ? '' : `<button class="gold" data-act="coran" data-k="${k}"><span class="gold-ic">${D.coran ? ic('check') : ic('book')}</span><div class="txt"><span class="k">Règle d’or</span><span class="pn">1 page de Coran</span><span class="s">Touche pour valider</span></div></button>`}
  ${rdvBlock(k)}
  <div class="sec"><div class="sec-h"><h2 class="sh">${ic('coin', 'ico-s')} Ce qui rapporte</h2></div>${S.projects.map((p) => projBlock(p, k)).join('')}<button class="btn ghost addproj" data-act="newProject">${ic('plus', 'ico-s')} Ajouter un projet</button></div>
- <div class="sec"><div class="sec-h"><h2 class="sh">${ic('up', 'ico-s')} Ce qui me fait évoluer</h2><button class="link" data-act="open" data-t="week">Semaine type</button></div>${evolveCard('pratique', plan.pratique, k)}${evolveCard('video', plan.video, k)}</div>
+ <div class="sec"><div class="sec-h"><h2 class="sh">${ic('up', 'ico-s')} Ce qui me fait évoluer</h2><button class="link" data-act="open" data-t="week">Semaine type</button></div>${(() => { const left = ['pratique', 'video'].filter((x) => !(plan[x] && D.evolve?.[x])); return left.length ? left.map((x) => evolveCard(x, plan[x], k)).join('') : `<div class="pdone card">${ic('check', 'ico-xs')} Pratique et vidéo faites</div>`; })()}</div>
+ ${doneBlock(k)}
  ${isToday ? `<button class="card coach" style="text-align:left;width:100%;${h >= 18 ? '' : 'border-color:var(--line);background:var(--card)'}" data-act="open" data-t="bilan">${ic('moon', 'ico spark')}<div class="coach-body"><span class="coach-msg">Bilan du soir</span><span class="coach-sub">${D.bilan ? 'Journée validée ✓' : 'Fais le point sur ta journée en 1 minute.'}</span></div></button>` : ''}`;
 }
 function vToday() {
@@ -425,6 +444,7 @@ function setTask(x, p, done, k) { x.done = done; x.doneAt = done ? k || today() 
 const A = {
   tab: (e) => go({ tab: e.dataset.v, sub: null }),
   open: (e) => open(e.dataset.t, { id: e.dataset.id }),
+  toggleDone: () => { LS.set('cap-done-open', !doneOpen()); render(); },
   calMode: (e) => { CAL.mode = e.dataset.v; render(); },
   calMove: (e) => { const n = +e.dataset.n; CAL.k = CAL.mode === 'day' ? addDays(CAL.k, n) : CAL.mode === 'week' ? addDays(CAL.k, 7 * n) : CAL.mode === 'month' ? shiftMonth(CAL.k, n) : shiftMonth(CAL.k, 12 * n); render(); window.scrollTo(0, 0); },
   calToday: () => { CAL.k = today(); render(); },
@@ -452,8 +472,8 @@ const A = {
   },
   back: () => { goBack(); window.scrollTo(0, 0); },
   coran: (e) => { const D = day(e.dataset.k); D.coran = !D.coran; if (D.coran && e.dataset.k === today()) toast('Règle d’or validée ✓'); save(); render(); },
-  routine: (e) => { const D = day(e.dataset.k); D.routines ??= []; const i = D.routines.indexOf(e.dataset.id); i < 0 ? D.routines.push(e.dataset.id) : D.routines.splice(i, 1); save(); render(); },
-  task: (e) => { const f = findTask(e.dataset.id); if (!f) return; setTask(f.t, f.p, !f.t.done, e.dataset.k); save(); render(); },
+  routine: (e) => { const D = day(e.dataset.k); D.routines ??= []; const i = D.routines.indexOf(e.dataset.id); i < 0 ? D.routines.push(e.dataset.id) : D.routines.splice(i, 1); save(); render(); toast(i < 0 ? 'Fait ✓' : 'Remis à faire'); },
+  task: (e) => { const f = findTask(e.dataset.id); if (!f) return; setTask(f.t, f.p, !f.t.done, e.dataset.k); save(); render(); toast(f.t.done ? 'Fait ✓' : 'Remis à faire'); },
   evolve: (e) => {
     const D = day(e.dataset.k); D.evolve ??= {}; const kind = e.dataset.kind;
     if (D.evolve[kind]) { D.evolve[kind] = false; save(); return render(); }
